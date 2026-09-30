@@ -168,7 +168,23 @@ underwater_treasure_hunt/
 
 ---
 
-## 🚀 7. Installation & Quick Start
+## 🌐 7. Play in Browser & Deploy on Render (Static Site)
+
+The repository includes a production-ready **HTML5 + Web Audio + Google MediaPipe Hands** in-browser version that can be played with zero installation or hosted on **Render as a Static Site**:
+
+### Instant 1-Click Hosting on Render:
+1. Go to your [Render Dashboard](https://dashboard.render.com/) and click **New +** ➔ **Static Site**.
+2. Connect your GitHub repository: `dhanushree2107/underwater-trrasure-hand-guesture-game`.
+3. Configure the deployment settings:
+   * **Name**: `underwater-treasure-hunt`
+   * **Branch**: `main`
+   * **Build Command**: *(leave empty)*
+   * **Publish Directory**: `./` (or `.`)
+4. Click **Create Static Site**! Render will deploy it instantly to a free `https://<name>.onrender.com` URL.
+
+---
+
+## 🚀 8. Desktop Installation & Quick Start
 
 ### Prerequisites
 * Windows 10/11, macOS, or Linux

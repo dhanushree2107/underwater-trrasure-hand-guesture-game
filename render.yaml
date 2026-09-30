@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: underwater-treasure-hunt
+    env: static
+    buildCommand: ""
+    staticPublishPath: ./
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /*
+        name: Access-Control-Allow-Origin
+        value: "*"
+      - path: /*
+        name: Cache-Control
+        value: no-cache

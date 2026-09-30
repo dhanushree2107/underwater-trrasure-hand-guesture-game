@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Underwater Treasure Hunt | Vision-Controlled Hand Gesture Game</title>
+  <meta name="description" content="Commercial-grade vision-controlled underwater treasure hunt game in HTML5 & Web Audio. Control an oceanic scuba explorer with hand gestures!">
+  
+  <!-- Premium Modern Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Google MediaPipe Hands & Camera Utils CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="ocean-theme">
+
+  <!-- Hidden Camera Stream Element -->
+  <video id="webcam-raw" playsinline muted style="display: none;"></video>
+
+  <!-- Top Navigation Bar -->
+  <header class="top-nav-bar" id="top-nav-bar">
+    <div class="brand-badge">
+      <span class="pulse-bubble"></span>
+      <span class="brand-title">UNDERWATER TREASURE <span class="accent-tag">AI VISION</span></span>
+    </div>
+    <div class="nav-actions">
+      <div class="hud-pill" id="hud-level-pill">
+        <span class="pill-label">ZONE:</span>
+        <span class="pill-val" id="hud-level-name">Shallow Sea</span>
+      </div>
+      <button id="btn-toggle-sound" class="nav-btn" title="Toggle Sound (M)" aria-label="Toggle Sound">
+        <span id="sound-icon">🔊</span>
+      </button>
+      <button id="btn-toggle-fullscreen" class="nav-btn" title="Toggle Fullscreen (F)" aria-label="Toggle Fullscreen">
+        <span>⛶</span>
+      </button>
+      <button id="btn-switch-control" class="nav-pill-btn" title="Toggle Webcam / Mouse Controls">
+        <span class="status-dot online" id="camera-status-dot"></span>
+        <span id="control-mode-text">WEBCAM ACTIVE</span>
+      </button>
+      <button id="btn-pause-game" class="nav-btn" style="display: none;" title="Pause Game (ESC)">
+        <span>⏸</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Game Canvas Container -->
+  <main class="canvas-wrapper">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- In-Game In-Canvas HUD Overlay -->
+    <div id="game-hud" class="game-hud" style="display: none;">
+      <!-- Left: Oxygen Tank Gauge -->
+      <div class="hud-card oxygen-card">
+        <div class="oxygen-header">
+          <span class="hud-icon">🤿</span>
+          <span class="hud-title">OXYGEN SUPPLY</span>
+          <span class="oxygen-val" id="hud-oxygen-text">100%</span>
+        </div>
+        <div class="meter-bar-track">
+          <div class="meter-bar-fill" id="hud-oxygen-bar"></div>
+        </div>
+      </div>
+
+      <!-- Center: Level Objective Counter & Relic Box -->
+      <div class="hud-card objective-card">
+        <div class="objective-headline">
+          <span class="relic-chest-icon">🎁</span>
+          <span class="objective-title">VAULT OBJECTIVE</span>
+        </div>
+        <div class="objective-progress" id="hud-objective-text">
+          0 / 3 STORED
+        </div>
+      </div>
+
+      <!-- Right: Score & Sonar Charges & Active Gesture -->
+      <div class="hud-card telemetry-card">
+        <div class="stat-row">
+          <span class="stat-label">SCORE:</span>
+          <span class="stat-val gold-glow" id="hud-score-val">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">SONAR (✌️):</span>
+          <span class="stat-val cyan-glow" id="hud-sonar-val">3 / 3</span>
+        </div>
+        <div class="gesture-badge" id="hud-gesture-badge">
+          <span class="gesture-emoji" id="hud-gesture-emoji">🖐️</span>
+          <span class="gesture-name" id="hud-gesture-name">SWIM FREE</span>
+        </div>
+      </div>
+
+      <!-- Picture-In-Picture Webcam View (Bottom-Right) -->
+      <div class="pip-camera-box" id="pip-camera-box">
+        <canvas id="pip-canvas" width="160" height="120"></canvas>
+        <div class="pip-tag">LIVE VISION</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ======================================================= -->
+  <!-- MODAL SCREENS & OVERLAYS -->
+  <!-- ======================================================= -->
+
+  <!-- 1. MAIN MENU SCREEN -->
+  <section id="menu-screen" class="app-screen active">
+    <div class="menu-glass-panel">
+      <div class="title-emblem">🌊</div>
+      <h1 class="game-title">UNDERWATER TREASURE HUNT</h1>
+      <p class="game-subtitle">Vision-Controlled Hand Gesture Interactive Deep Sea Adventure</p>
+      
+      <div class="swimmer-concept-banner">
+        <div class="concept-icon">🤿</div>
+        <div class="concept-desc">
+          <strong>Your Hand Controls The Swimmer!</strong><br>
+          Move your hand to steer the underwater scuba explorer. Pinch (🤏) or hover over relics to instantly store them in your seafloor vault!
+        </div>
+      </div>
+
+      <div class="menu-buttons">
+        <button id="btn-play-expedition" class="action-btn primary-glow">
+          <span class="btn-icon">⚡</span>
+          <span>START EXPEDITION</span>
+        </button>
+        <button id="btn-level-select" class="action-btn secondary-btn">
+          <span class="btn-icon">🗺️</span>
+          <span>SELECT ZONE</span>
+        </button>
+        <button id="btn-how-to-play" class="action-btn secondary-btn">
+          <span class="btn-icon">🖐️</span>
+          <span>GESTURE GUIDE</span>
+        </button>
+      </div>
+
+      <div class="camera-prompt-tip">
+        <span>📸 Webcam required for hand tracking. Or click <strong>Mouse Fallback</strong> anytime.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. LEVEL SELECT SCREEN -->
+  <section id="level-screen" class="app-screen" style="display: none;">
+    <div class="menu-glass-panel level-select-panel">
+      <h2 class="screen-heading">EXPEDITION ZONES 🗺️</h2>
+      <p class="screen-sub">Choose your ocean diving depth</p>
+
+      <div class="levels-grid" id="levels-grid">
+        <!-- Rendered by game.js dynamically -->
+      </div>
+
+      <button id="btn-back-from-levels" class="action-btn secondary-btn back-btn">
+        <span>⬅ BACK TO MENU</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- 3. GESTURE GUIDE / HOW TO PLAY MODAL -->
+  <section id="instructions-screen" class="app-screen" style="display: none;">
+    <div class="menu-glass-panel guide-panel">
+      <h2 class="screen-heading">GESTURE FLIGHT MANUAL 🖐️</h2>
+      <p class="screen-sub">Intuitive Touchless Computer Vision Mechanics</p>
+
+      <div class="gesture-cards-grid">
+        <div class="gesture-card">
+          <div class="card-emoji">🖐️</div>
+          <h3>Hand Movement</h3>
+          <p>Steers the scuba diver explorer. He flutters fins, banks smoothly, and illuminates the deep with his volumetric torch beam.</p>
+        </div>
+        <div class="gesture-card">
+          <div class="card-emoji">🤏 / 👉</div>
+          <h3>Pinch or Hover</h3>
+          <p>Pinch thumb & index together, tap down, or steadily hover over any relic to collect and store it in your seafloor vault box!</p>
+        </div>
+        <div class="gesture-card">
+          <div class="card-emoji">✌️</div>
+          <h3>Two Fingers (Peace)</h3>
+          <p>Emits an expanding <strong>Sonar Wave</strong>! Reveals genuine relics in <span class="green-text">Green</span>, counterfeits in <span class="yellow-text">Yellow</span>, and explosive mines in <span class="red-text">Red</span>.</p>
+        </div>
+        <div class="gesture-card">
+          <div class="card-emoji">✋</div>
+          <h3>Open Palm</h3>
+          <p>Unleashes a rushing <strong>Water Current</strong> torrent that sweeps away fish schools and displaces uncollected items.</p>
+        </div>
+        <div class="gesture-card">
+          <div class="card-emoji">✊</div>
+          <h3>Curled Fist</h3>
+          <p>Activates the <strong>Energy Shield Dome</strong>! Protects you from apex predator shark bites in deep ocean shipwrecks.</p>
+        </div>
+        <div class="gesture-card fallback-card">
+          <div class="card-emoji">🖱️</div>
+          <h3>Mouse Fallback</h3>
+          <p>Mouse moves diver • Left Click grabs/collects • Right Click sends Sonar • Spacebar triggers Water Current • 'S' key activates Shield.</p>
+        </div>
+      </div>
+
+      <button id="btn-close-guide" class="action-btn primary-glow">
+        <span>GOT IT, LET'S DIVE!</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- 4. PAUSE SCREEN -->
+  <section id="pause-screen" class="app-screen" style="display: none;">
+    <div class="menu-glass-panel">
+      <div class="title-emblem">⏸️</div>
+      <h2 class="screen-heading">EXPEDITION PAUSED</h2>
+      <div class="menu-buttons">
+        <button id="btn-resume-game" class="action-btn primary-glow">RESUME DIVE</button>
+        <button id="btn-restart-level" class="action-btn secondary-btn">RESTART LEVEL</button>
+        <button id="btn-exit-to-menu" class="action-btn secondary-btn">MAIN MENU</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. LEVEL COMPLETE / WIN SCREEN -->
+  <section id="win-screen" class="app-screen" style="display: none;">
+    <div class="menu-glass-panel victory-panel">
+      <div class="title-emblem">🏆</div>
+      <h2 class="screen-heading gold-text">ZONE SECURED!</h2>
+      <p class="screen-sub" id="win-zone-desc">All required treasures safely stored in the seafloor vault.</p>
+      
+      <div class="summary-stats">
+        <div class="summary-box">
+          <span class="summary-label">TOTAL SCORE</span>
+          <span class="summary-val gold-glow" id="win-score-val">0</span>
+        </div>
+        <div class="summary-box">
+          <span class="summary-label">REMAINING OXYGEN</span>
+          <span class="summary-val cyan-glow" id="win-oxygen-val">100%</span>
+        </div>
+      </div>
+
+      <div class="menu-buttons">
+        <button id="btn-next-level" class="action-btn primary-glow">NEXT EXPEDITION ➔</button>
+        <button id="btn-win-to-menu" class="action-btn secondary-btn">ZONE MAP</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. GAME OVER SCREEN -->
+  <section id="gameover-screen" class="app-screen" style="display: none;">
+    <div class="menu-glass-panel gameover-panel">
+      <div class="title-emblem">⚠️</div>
+      <h2 class="screen-heading red-text">OXYGEN DEPLETED!</h2>
+      <p class="screen-sub" id="gameover-cause">Your breathing supply ran out before completing the vault objective.</p>
+      
+      <div class="menu-buttons">
+        <button id="btn-retry-level" class="action-btn primary-glow">TRY AGAIN ↺</button>
+        <button id="btn-over-to-menu" class="action-btn secondary-btn">MAIN MENU</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Game Logic and Engine -->
+  <script src="game.js"></script>
+</body>
+</html>
