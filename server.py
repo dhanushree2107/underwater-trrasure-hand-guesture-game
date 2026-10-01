@@ -39,17 +39,14 @@ def main():
     print("\n=======================================================")
     print("Underwater Treasure Hunt Web Server Running!")
     print("Accessible at any of the following URLs:")
-    threads = []
-    for port in PORTS:
+    for port in [3000, 5000]:
         t = threading.Thread(target=serve_on_port, args=(port,), daemon=True)
         t.start()
-        threads.append(t)
     print("=======================================================\n")
     sys.stdout.flush()
 
     try:
-        for t in threads:
-            t.join()
+        serve_on_port(8000)
     except KeyboardInterrupt:
         print("\n[Web Server] Shutting down...")
 
