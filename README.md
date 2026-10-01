@@ -5,7 +5,7 @@
 [![Pygame 2.6](https://img.shields.io/badge/Pygame-2.6-green.svg)](https://www.pygame.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.14-orange.svg)](https://developers.google.com/mediapipe)
 [![OpenCV](https://img.shields.io/badge/OpenCV-5.0-red.svg)](https://opencv.org/)
-[![Tests](https://img.shields.io/badge/Tests-35%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-48%20Passed-brightgreen.svg)]()
 
 ---
 
@@ -71,24 +71,25 @@ Traditional interactive gaming relies on physical peripherals (mice, keyboards, 
 
 ---
 
-## 🖐️ 3. Hand Gesture Controls & Mapping
+## 🖐️ 3. Dual-Hand Gesture Controls & Swimming Dynamics
 
-The entire game (gameplay and all UI menus) is **100% controlled via webcam hand tracking**. The system OS mouse is completely hidden.
+The game supports **both single-hand and simultaneous two-handed interaction**. The system OS mouse is completely hidden.
 
-| Gesture | Real-World Action | Game Action & In-Game Mechanic | Menu Selection Mechanic |
+| Gesture | Real-World Action | Game Action & In-Game Mechanic | Dual-Hand Synergy |
 | :--- | :--- | :--- | :--- |
-| 🖐 **Hand Movement** | Move hand in front of camera | **Steers Swimmer & Moves Hand Cursor**: Swimmer swims naturally left, right, up, down; glowing underwater cursor tracks hand | **Moves Cursor**: Moves illuminated hand cursor over buttons |
-| 🤏 **Pinch** | Thumb & index tips close together | **Tactile Grab / Deposit**: Grab relic near cursor/hands; release inside Seafloor Vault to deposit; open mystery crates | **Click / Select**: Activates hovered button with glassmorphic press animation |
-| ✋ **Open Palm** | Spread all 5 fingers open | **Water Current Burst**: Unleashes surging current pushing loose items, fish, and solving ancient puzzle step | Clears selection / navigates back |
-| ✌️ **Two Fingers** | Raise Index + Middle fingers | **Sonar Recon Pulse**: Emits expanding circular wave revealing hidden relics, traps, and solving puzzle step | Quick preview |
-| ✊ **Fist** | Curl all fingers tightly into palm | **Energy Shield**: Deploys forcefield dome protecting diver from sharks and jellyfish electric shocks | Pause / Cancel |
+| 🏊 **Dual-Hand Swimming** | Move **both hands** in front of camera | **Coordinated Swimming Navigation**: Swimmer glides smoothly toward the center point of both hands; fin kicks accelerate dynamically | **Propulsion Boost (1.35x–1.85x)**: Paddle both hands in swimming strokes (breaststroke/dog paddle) for high-speed swimming! |
+| 🖐 **Single-Hand Steering** | Move one hand in view | Guides diver toward hand reticle | Either Left or Right hand works seamlessly |
+| 🤏 **Pinch / Index Tap** | Thumb & index tips close together | **Tactile Grab / Deposit**: Pick up relics, deposit into seafloor vault, open crates, or click menu buttons | Either hand can grab relics; off-hand can hold shield! |
+| ✋ **Open Palm** | Spread all 5 fingers open | **Water Current Burst**: Unleashes surging current pushing loose items, fish, and solving ancient puzzle step | **🌊 Mega Tidal Current**: Opening **BOTH hands** at once triggers a double-strength tidal surge! |
+| ✌️ **Two Fingers** | Raise Index + Middle fingers | **Sonar Recon Pulse**: Emits expanding circular wave revealing hidden relics and traps | Fired by either hand |
+| ✊ **Fist** | Curl all fingers tightly into palm | **Energy Shield**: Deploys forcefield dome protecting diver from sharks and jellyfish electric shocks | **Tactical Hold**: Hold Fist on one hand for Shield while other hand grabs relics! |
 
 ---
 
-## 🎯 4. Underwater Hand Cursor (`ui/cursor.py`)
+## 🎯 4. Dual-Hand Reticle & Underwater Hand Cursor (`ui/cursor.py`)
 
-A bespoke, permanently visible underwater cursor renders atop all scenes:
-* **Dual Glowing Halos**: Cyan bioluminescent halo with trailing hydrodynamic bubble particles.
+A bespoke, permanently visible underwater cursor system renders atop all scenes:
+* **Dual-Hand Visualization**: When both hands are raised, distinct illuminated reticles are rendered for **LEFT HAND** (Cyan "SWIM CONTROL") and **RIGHT HAND** (Gold "INTERACTION"), operating freely and independently across the screen without any connecting tether lines.
 * **Contextual State Switching**:
   - `NORMAL`: Ambient cyan halo with subtle crosshair ring.
   - `TREASURE_TARGET`: Gilded gold aura when hovering over relics or mystery crates.

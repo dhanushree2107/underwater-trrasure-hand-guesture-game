@@ -6,7 +6,7 @@ echo        Starting Underwater Treasure Hunt
 echo ===================================================
 where py >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    py main.py
+    py -3.12 main.py
 ) else (
     python main.py
 )

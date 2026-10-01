@@ -21,6 +21,37 @@ from audio.sound_manager import SoundManager
 class Button:
     """A polished glassmorphic interactive UI button."""
 
+    @staticmethod
+    def clean_label(text: str) -> str:
+        """Removes special unicode/emoji symbols that render as hollow tofu outline boxes in Pygame SysFont."""
+        replacements = {
+            "▶": ">",
+            "◀": "<",
+            "⟳": "",
+            "⚡": "",
+            "🗺️": "",
+            "🏛️": "",
+            "🗺": "",
+            "🏛": "",
+            "✓": "OK",
+            "✌️": "",
+            "🤏": "",
+            "✋": "",
+            "✊": "",
+            "⭐": "*",
+            "🔥": "",
+            "🔒": "",
+            "📦": "",
+            "💎": "",
+            "🎁": "",
+            "❤️": "",
+            "🖤": "",
+        }
+        cleaned = text
+        for k, v in replacements.items():
+            cleaned = cleaned.replace(k, v)
+        return " ".join(cleaned.split())
+
     def __init__(
         self,
         rect: pygame.Rect,
@@ -30,8 +61,11 @@ class Button:
         sound_manager: Optional[SoundManager] = None,
         accent_color: Tuple[int, int, int] = COLOR_NEON_TEAL
     ):
+        if not pygame.font.get_init():
+            pygame.font.init()
         self.rect = rect
-        self.text = text
+        self.raw_text = text
+        self.text = self.clean_label(text)
         self.font = pygame.font.SysFont("segoeui", font_size, bold=True)
         self.on_click = on_click
         self.sound_manager = sound_manager
@@ -48,8 +82,8 @@ class Button:
         """
         Updates button hover and click states.
         Triggers on:
-        - Instant Click (Index Tap 👆 / Pinch 🤏 / Left Mouse Click)
-        - Hover Dwell (Holding cursor steadily over button for 0.7s)
+        - Instant Click (Index Tap / Pinch / Left Mouse Click)
+        - Hover Dwell (Holding cursor steadily over button for 0.5s)
         """
         self.is_hovered = self.rect.collidepoint(cursor_x, cursor_y)
         
@@ -88,9 +122,9 @@ class Button:
 
     def draw(self, surface: pygame.Surface) -> None:
         """Renders the glassmorphic button with animated glow border and dwell meter."""
-        # Scale slightly on hover
+        # Scale slightly on hover with even expansion on all sides
         expand = int(self.hover_progress * 4)
-        draw_rect = self.rect.inflate(expand * 2, expand)
+        draw_rect = self.rect.inflate(expand * 2, expand * 2)
 
         # 1. Semi-transparent Glass Background
         glass_surf = pygame.Surface((draw_rect.width, draw_rect.height), pygame.SRCALPHA)
@@ -108,11 +142,11 @@ class Button:
         if self.is_hovered and self.hover_dwell_time > 0:
             pct = min(1.0, max(0.0, self.hover_dwell_time / self.dwell_threshold))
             if pct > 0:
-                bar_w = int((draw_rect.width - 20) * pct)
-                bar_rect = pygame.Rect(draw_rect.left + 10, draw_rect.bottom - 5, bar_w, 3)
+                bar_w = int((draw_rect.width - 24) * pct)
+                bar_rect = pygame.Rect(draw_rect.left + 12, draw_rect.bottom - 6, bar_w, 3)
                 pygame.draw.rect(surface, self.accent_color, bar_rect, border_radius=2)
 
-        # 4. Text Label
+        # 4. Text Label perfectly centered inside button outline box
         text_col = COLOR_WHITE if not self.is_hovered else (220, 255, 250)
         text_surf = self.font.render(self.text, True, text_col)
         tx = draw_rect.centerx - text_surf.get_width() // 2

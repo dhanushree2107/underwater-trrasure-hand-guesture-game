@@ -22,9 +22,14 @@ CAMERA_FPS: int = 30
 CAMERA_FLIP_HORIZONTAL: bool = True  # Mirror camera for natural movement
 
 # Hand Tracking & Gesture Parameters
-MAX_NUM_HANDS: int = 1
+MAX_NUM_HANDS: int = 2                    # Supports BOTH hands for dual-hand swimming and gestures
 MIN_DETECTION_CONFIDENCE: float = 0.5
 MIN_TRACKING_CONFIDENCE: float = 0.5
+
+# Dual-Hand Swimming Parameters
+DUAL_HAND_SWIM_BOOST: float = 1.35       # Swim propulsion multiplier when navigating with both hands
+DUAL_HAND_PADDLE_MAX_BOOST: float = 1.85 # Max propulsion boost when actively paddling hands
+DUAL_HAND_STROKE_THRESHOLD: float = 75.0 # Speed threshold in px/s to trigger swimming paddle stroke
 
 # Gesture Thresholds
 PINCH_THRESHOLD: float = 0.082          # Distance between thumb and index tips (normalized)

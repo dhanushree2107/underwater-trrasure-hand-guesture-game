@@ -39,6 +39,7 @@ class TreasureType(Enum):
     GOLD = "GOLD"
     RARE = "RARE"
     ANCIENT = "ANCIENT"
+    HEAVY = "HEAVY"
     FAKE = "FAKE"
     TRAP = "TRAP"
 
@@ -54,6 +55,13 @@ class Treasure:
         self.collected = False     # True once successfully deposited into the chest
         self.is_carried = False    # True while swimmer is actively carrying it
         self.revealed_timer = 0.0
+
+        # Heavy treasure dual-hand mechanics
+        self.requires_dual_hand = (self.type == TreasureType.HEAVY)
+        self.is_unstable = False
+        self.unstable_timer = 0.0
+        self.instability: float = 0.0
+        self.is_hovered_by_player = False
 
         # Animation state
         self.float_phase = random.uniform(0.0, math.pi * 2)
@@ -78,6 +86,14 @@ class Treasure:
             self.score_value = SCORE_ANCIENT
             self.oxygen_penalty = 0.0
             self.base_color = COLOR_PURPLE_MYSTIC
+        elif self.type == TreasureType.HEAVY:
+            self.score_value = 750
+            self.oxygen_penalty = 0.0
+            self.base_color = (185, 120, 50)  # Gilded nautical strongbox
+            self.radius = 42.0
+            self.requires_dual_hand = True
+            self.requires_both_hands = True
+            self.is_heavy = True
         elif self.type == TreasureType.FAKE:
             self.score_value = SCORE_FAKE_PENALTY
             self.oxygen_penalty = FAKE_TREASURE_OXYGEN_PENALTY
@@ -206,6 +222,33 @@ class Treasure:
             pygame.draw.circle(surface, COLOR_CORAL_RED, (cx - r // 2, cy - r // 2 + 4), 4)
             pygame.draw.circle(surface, COLOR_EMERALD, (cx, cy - r // 4 + 4), 5)
             pygame.draw.circle(surface, COLOR_CORAL_RED, (cx + r // 2, cy - r // 2 + 4), 4)
+
+        elif self.type == TreasureType.HEAVY:
+            # Massive Sunken Strongbox with Dual Iron Ring Handles
+            hw, hh = int(r * 1.6), int(r * 1.2)
+            h_rect = pygame.Rect(cx - hw // 2, cy - hh // 2, hw, hh)
+            pygame.draw.rect(surface, (140, 85, 30), h_rect, border_radius=8)
+            pygame.draw.rect(surface, COLOR_GOLD, h_rect, width=3, border_radius=8)
+            # Dual Iron Grips for Left & Right Hands
+            pygame.draw.circle(surface, (200, 200, 210), (cx - hw // 2 + 6, cy), 10, 3)
+            pygame.draw.circle(surface, (200, 200, 210), (cx + hw // 2 - 6, cy), 10, 3)
+            # Gold banding & cross braces
+            pygame.draw.line(surface, COLOR_GOLD, (cx - hw // 2, cy - hh // 4), (cx + hw // 2, cy - hh // 4), 2)
+            pygame.draw.line(surface, COLOR_GOLD, (cx - hw // 2, cy + hh // 4), (cx + hw // 2, cy + hh // 4), 2)
+            pygame.draw.circle(surface, COLOR_GOLD, (cx, cy), 8)
+            pygame.draw.circle(surface, (20, 20, 20), (cx, cy + 1), 3)
+
+            # Heavy treasure UI callout
+            if not self.is_carried and self.is_hovered_by_player:
+                tag_font = pygame.font.SysFont("segoeui", 12, bold=True)
+                t1 = tag_font.render("HEAVY TREASURE", True, COLOR_GOLD)
+                t2 = tag_font.render("USE BOTH HANDS 👐", True, COLOR_WHITE)
+                surface.blit(t1, (cx - t1.get_width() // 2, cy - r - 32))
+                surface.blit(t2, (cx - t2.get_width() // 2, cy - r - 16))
+            elif self.is_carried and self.is_unstable:
+                tag_font = pygame.font.SysFont("segoeui", 13, bold=True)
+                t_unst = tag_font.render("⚠️ UNSTABLE! KEEP HANDS TOGETHER!", True, COLOR_CORAL_RED)
+                surface.blit(t_unst, (cx - t_unst.get_width() // 2, cy - r - 22))
 
         # 3. Sonar Reveal Aura / Overlay
         if self.revealed_timer > 0:
@@ -490,6 +533,8 @@ class TreasureManager:
             [(TreasureType.FAKE, 1) for _ in range(fake_count)] +
             [(TreasureType.TRAP, 1) for _ in range(trap_count)]
         )
+        if ancient_count > 0:
+            specs.append((TreasureType.HEAVY, 1))
         random.shuffle(specs)
 
         for t_type, _ in specs:
@@ -540,11 +585,16 @@ class TreasureManager:
                     t.reveal()
 
     def get_hovered_treasure(self, cursor_x: float, cursor_y: float) -> Optional[Treasure]:
-        """Returns the first uncollected, uncarried treasure within reach."""
+        """Returns the closest uncollected, uncarried treasure within reach."""
+        closest_t = None
+        min_dist = float('inf')
         for t in self.treasures:
-            if t.is_hovered(cursor_x, cursor_y):
-                return t
-        return None
+            if not t.collected and not t.is_carried:
+                d = distance(cursor_x, cursor_y, t.x, t.y)
+                if d <= (t.radius + 26.0) and d < min_dist:
+                    min_dist = d
+                    closest_t = t
+        return closest_t
 
     def get_hovered_crate(self, cursor_x: float, cursor_y: float) -> Optional[MysteryCrate]:
         """Returns the first un-opened mystery crate within reach."""

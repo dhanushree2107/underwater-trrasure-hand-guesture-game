@@ -37,6 +37,7 @@ class MainMenu:
         on_instructions: Callable[[], None],
         on_camera_check: Callable[[], None],
         on_quit: Callable[[], None],
+        on_museum: Optional[Callable[[], None]] = None,
         sound_manager: Optional[SoundManager] = None
     ):
         self.on_play = on_play
@@ -45,8 +46,11 @@ class MainMenu:
         self.on_instructions = on_instructions
         self.on_camera_check = on_camera_check
         self.on_quit = on_quit
+        self.on_museum = on_museum
         self.sound_manager = sound_manager
 
+        if not pygame.font.get_init():
+            pygame.font.init()
         self.font_title = pygame.font.SysFont("segoeui", 50, bold=True)
         self.font_subtitle = pygame.font.SysFont("segoeui", 19, bold=True)
 
@@ -55,55 +59,63 @@ class MainMenu:
         self.marine_manager = MarineLifeManager(fish_count=10)
 
         # Interactive Menu Buttons
-        btn_w, btn_h = 280, 46
+        btn_w, btn_h = 330, 44
         cx = SCREEN_WIDTH // 2 - btn_w // 2
-        start_y = 250
-        spacing = 52
+        start_y = 225
+        spacing = 50
 
         self.play_btn = Button(
             pygame.Rect(cx, start_y, btn_w, btn_h),
-            "START EXPEDITION ▶",
-            font_size=19,
+            "START EXPEDITION >",
+            font_size=18,
             on_click=self.on_play,
             sound_manager=self.sound_manager,
             accent_color=COLOR_GOLD
         )
         self.level_select_btn = Button(
             pygame.Rect(cx, start_y + spacing, btn_w, btn_h),
-            "EXPEDITION ZONES 🗺️",
-            font_size=18,
+            "EXPEDITION ZONES",
+            font_size=17,
             on_click=self.on_level_select,
             sound_manager=self.sound_manager,
             accent_color=COLOR_EMERALD
         )
-        self.challenges_btn = Button(
+        self.museum_btn = Button(
             pygame.Rect(cx, start_y + spacing * 2, btn_w, btn_h),
-            "ABYSSAL CHALLENGES ⚡",
-            font_size=18,
+            "UNDERWATER MUSEUM",
+            font_size=17,
+            on_click=self.on_museum if self.on_museum else self.on_play,
+            sound_manager=self.sound_manager,
+            accent_color=(175, 95, 210)
+        )
+        self.challenges_btn = Button(
+            pygame.Rect(cx, start_y + spacing * 3, btn_w, btn_h),
+            "ABYSSAL CHALLENGES",
+            font_size=17,
             on_click=self.on_challenges,
             sound_manager=self.sound_manager,
             accent_color=COLOR_AMBER_WARNING
         )
         self.instructions_btn = Button(
-            pygame.Rect(cx, start_y + spacing * 3, btn_w, btn_h),
+            pygame.Rect(cx, start_y + spacing * 4, btn_w, btn_h),
             "HOW TO PLAY / GESTURES",
-            font_size=18,
+            font_size=17,
             on_click=self.on_instructions,
             sound_manager=self.sound_manager,
             accent_color=COLOR_NEON_TEAL
         )
         self.camera_btn = Button(
-            pygame.Rect(cx, start_y + spacing * 4, btn_w, btn_h),
-            "CAMERA & VISION CHECK",
-            font_size=18,
+            pygame.Rect(cx, start_y + spacing * 5, btn_w, btn_h),
+            "CAMERA & GESTURE CHECK",
+            font_size=17,
             on_click=self.on_camera_check,
             sound_manager=self.sound_manager,
             accent_color=COLOR_OCEAN_CYAN
         )
         self.quit_btn = Button(
-            pygame.Rect(cx, start_y + spacing * 5, btn_w, btn_h),
+            pygame.Rect(cx, start_y + spacing * 6, btn_w, btn_h),
             "QUIT EXPEDITION",
-            font_size=18,
+            font_size=17,
             on_click=self.on_quit,
             sound_manager=self.sound_manager,
             accent_color=(220, 75, 75)
@@ -112,6 +124,7 @@ class MainMenu:
         self.buttons = [
             self.play_btn,
             self.level_select_btn,
+            self.museum_btn,
             self.challenges_btn,
             self.instructions_btn,
             self.camera_btn,

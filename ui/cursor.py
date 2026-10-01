@@ -68,11 +68,21 @@ class HandCursor:
         self.is_hand_detected: bool = True
         self.hand_lost_timer: float = 0.0
 
+        # Dual Hand Tracking States
+        self.has_second_hand: bool = False
+        self.second_x: float = SCREEN_WIDTH / 2.0
+        self.second_y: float = SCREEN_HEIGHT / 2.0
+        self.second_target_state: CursorTargetState = CursorTargetState.NORMAL
+        self.is_dual_swimming: bool = False
+        self.paddle_boost: float = 1.0
+        self.tether_phase: float = 0.0
+
         # Animation states
         self.pulse_phase: float = 0.0
         self.pinch_scale: float = 1.0
         self.sonar_pulse_radius: float = 0.0
         self.trail_bubbles: List[CursorTrailBubble] = []
+        self.second_trail_bubbles: List[CursorTrailBubble] = []
         self.bubble_emit_timer: float = 0.0
 
         # Typography
@@ -80,6 +90,28 @@ class HandCursor:
             pygame.font.init()
         self.font_badge = pygame.font.SysFont("segoeui", 12, bold=True)
         self.font_warning = pygame.font.SysFont("segoeui", 14, bold=True)
+        self.font_swim = pygame.font.SysFont("segoeui", 13, bold=True)
+
+    def _resolve_target_state(
+        self,
+        gesture: GestureType,
+        is_hovering_t: bool = False,
+        is_hovering_d: bool = False,
+        sonar_active: bool = False
+    ) -> CursorTargetState:
+        if gesture == GestureType.PINCH:
+            return CursorTargetState.PINCH
+        elif sonar_active or gesture == GestureType.TWO_FINGERS:
+            return CursorTargetState.SONAR
+        elif is_hovering_d:
+            return CursorTargetState.DANGER
+        elif is_hovering_t:
+            return CursorTargetState.TREASURE_TARGET
+        elif gesture == GestureType.OPEN_PALM:
+            return CursorTargetState.CURRENT
+        elif gesture == GestureType.FIST:
+            return CursorTargetState.SHIELD
+        return CursorTargetState.NORMAL
 
     def update(
         self,
@@ -90,105 +122,117 @@ class HandCursor:
         is_hovering_treasure: bool = False,
         is_hovering_danger: bool = False,
         sonar_active: bool = False,
-        dt: float = 0.016
+        dt: float = 0.016,
+        has_dual_hands: bool = False,
+        second_x: Optional[float] = None,
+        second_y: Optional[float] = None,
+        second_gesture: GestureType = GestureType.NONE,
+        is_dual_swimming: bool = False,
+        paddle_boost: float = 1.0,
     ) -> None:
-        """Updates cursor kinematics, targeting states, and bubble trail."""
+        """Updates cursor kinematics, dual-hand states, and bubble trails."""
         self.is_hand_detected = is_detected
         self.pulse_phase += 5.5 * dt
+        self.tether_phase += 7.0 * dt
+        self.has_second_hand = has_dual_hands
+        self.is_dual_swimming = is_dual_swimming
+        self.paddle_boost = paddle_boost
 
         if not is_detected:
             self.hand_lost_timer += dt
         else:
             self.hand_lost_timer = 0.0
 
-        # Smooth position interpolation towards hand target
+        # Smooth position interpolation towards hand 1 target
         smooth_factor = min(1.0, 24.0 * dt)
         self.x += (raw_x - self.x) * smooth_factor
         self.y += (raw_y - self.y) * smooth_factor
         self.x = max(10.0, min(SCREEN_WIDTH - 10.0, self.x))
         self.y = max(10.0, min(SCREEN_HEIGHT - 10.0, self.y))
 
-        # Determine visual target state
-        if current_gesture == GestureType.PINCH:
-            self.target_state = CursorTargetState.PINCH
+        # Smooth position interpolation towards hand 2 target
+        if has_dual_hands and second_x is not None and second_y is not None:
+            self.second_x += (second_x - self.second_x) * smooth_factor
+            self.second_y += (second_y - self.second_y) * smooth_factor
+            self.second_x = max(10.0, min(SCREEN_WIDTH - 10.0, self.second_x))
+            self.second_y = max(10.0, min(SCREEN_HEIGHT - 10.0, self.second_y))
+            self.second_target_state = self._resolve_target_state(second_gesture)
+
+        # Primary Hand Target State
+        self.target_state = self._resolve_target_state(
+            current_gesture,
+            is_hovering_t=is_hovering_treasure,
+            is_hovering_d=is_hovering_danger,
+            sonar_active=sonar_active
+        )
+
+        if self.target_state == CursorTargetState.PINCH:
             self.pinch_scale = max(0.65, self.pinch_scale - 6.0 * dt)
         else:
             self.pinch_scale = min(1.0, self.pinch_scale + 5.0 * dt)
-            if sonar_active or current_gesture == GestureType.TWO_FINGERS:
-                self.target_state = CursorTargetState.SONAR
+            if self.target_state == CursorTargetState.SONAR:
                 self.sonar_pulse_radius += 120.0 * dt
                 if self.sonar_pulse_radius > 65.0:
                     self.sonar_pulse_radius = 15.0
-            elif is_hovering_danger:
-                self.target_state = CursorTargetState.DANGER
-            elif is_hovering_treasure:
-                self.target_state = CursorTargetState.TREASURE_TARGET
-            elif current_gesture == GestureType.OPEN_PALM:
-                self.target_state = CursorTargetState.CURRENT
-            elif current_gesture == GestureType.FIST:
-                self.target_state = CursorTargetState.SHIELD
-            else:
-                self.target_state = CursorTargetState.NORMAL
 
-        # Emit cursor bubble trail
+        # Emit cursor bubble trail for Hand 1 and Hand 2
         self.bubble_emit_timer += dt
         if self.bubble_emit_timer >= 0.045:
             self.bubble_emit_timer = 0.0
             trail_col = COLOR_GOLD if self.target_state == CursorTargetState.TREASURE_TARGET else COLOR_NEON_TEAL
             self.trail_bubbles.append(CursorTrailBubble(self.x, self.y, trail_col))
+            if has_dual_hands:
+                trail_col_2 = COLOR_GOLD if self.second_target_state == CursorTargetState.TREASURE_TARGET else (255, 180, 50)
+                self.second_trail_bubbles.append(CursorTrailBubble(self.second_x, self.second_y, trail_col_2))
 
         # Update bubbles
         self.trail_bubbles = [b for b in self.trail_bubbles if b.update(dt)]
+        self.second_trail_bubbles = [b for b in self.second_trail_bubbles if b.update(dt)]
 
-    def draw(self, surface: pygame.Surface) -> None:
-        """Renders the custom underwater cursor and 'HAND NOT DETECTED' banner."""
-        cx = int(self.x)
-        cy = int(self.y)
-
-        # 1. Draw glowing bubble trail
-        for b in self.trail_bubbles:
-            alpha = int(255 * (b.life / b.max_life))
-            bubble_surf = pygame.Surface((int(b.radius * 2 + 4), int(b.radius * 2 + 4)), pygame.SRCALPHA)
-            bcx, bcy = int(b.radius + 2), int(b.radius + 2)
-            pygame.draw.circle(bubble_surf, (*b.color[:3], int(alpha * 0.7)), (bcx, bcy), int(b.radius))
-            pygame.draw.circle(bubble_surf, (255, 255, 255, alpha), (bcx - 1, bcy - 1), max(1, int(b.radius * 0.4)))
-            surface.blit(bubble_surf, (int(b.x - bcx), int(b.y - bcy)))
-
-        # 2. Configure State Styling
+    def _draw_single_reticle(
+        self,
+        surface: pygame.Surface,
+        x: float,
+        y: float,
+        target_state: CursorTargetState,
+        default_label: str = "HAND 🖐️",
+        is_secondary: bool = False
+    ) -> None:
+        cx, cy = int(x), int(y)
         pulse = math.sin(self.pulse_phase) * 3.0
         base_radius = int((18 + pulse) * self.pinch_scale)
         size = base_radius * 2 + 50
         surf = pygame.Surface((size, size), pygame.SRCALPHA)
         scx, scy = size // 2, size // 2
 
-        if self.target_state == CursorTargetState.PINCH:
+        if target_state == CursorTargetState.PINCH:
             main_col = COLOR_GOLD
             aura_col = (*COLOR_GOLD[:3], 140)
             badge_text = "GRAB 🤏"
-        elif self.target_state == CursorTargetState.TREASURE_TARGET:
+        elif target_state == CursorTargetState.TREASURE_TARGET:
             main_col = COLOR_GOLD
             aura_col = (*COLOR_GOLD[:3], 120)
             badge_text = "TARGET 💎"
-        elif self.target_state == CursorTargetState.DANGER:
+        elif target_state == CursorTargetState.DANGER:
             main_col = COLOR_CORAL_RED
             aura_col = (*COLOR_CORAL_RED[:3], 160)
             badge_text = "DANGER ⚠️"
-        elif self.target_state == CursorTargetState.SONAR:
+        elif target_state == CursorTargetState.SONAR:
             main_col = COLOR_OCEAN_CYAN
             aura_col = (*COLOR_OCEAN_CYAN[:3], 130)
             badge_text = "SONAR ✌️"
-        elif self.target_state == CursorTargetState.CURRENT:
+        elif target_state == CursorTargetState.CURRENT:
             main_col = COLOR_WHITE
             aura_col = (*COLOR_WHITE[:3], 140)
             badge_text = "CURRENT ✋"
-        elif self.target_state == CursorTargetState.SHIELD:
+        elif target_state == CursorTargetState.SHIELD:
             main_col = COLOR_EMERALD
             aura_col = (*COLOR_EMERALD[:3], 160)
             badge_text = "SHIELD ✊"
         else:
-            main_col = COLOR_NEON_TEAL
-            aura_col = (*COLOR_NEON_TEAL[:3], 90)
-            badge_text = "HAND 🖐️"
+            main_col = (255, 195, 60) if is_secondary else COLOR_NEON_TEAL
+            aura_col = (*main_col[:3], 95)
+            badge_text = default_label
 
         # Multi-layer Glowing Halo
         pygame.draw.circle(surf, aura_col, (scx, scy), base_radius + 6, 3)
@@ -203,49 +247,51 @@ class HandCursor:
         pygame.draw.line(surf, main_col, (scx, scy - gap - arm_len), (scx, scy - gap), 2)
         pygame.draw.line(surf, main_col, (scx, scy + gap), (scx, scy + gap + arm_len), 2)
 
-        # State-specific accents:
-        if self.target_state == CursorTargetState.TREASURE_TARGET:
-            # Diamond target brackets
-            d_size = 7
-            pygame.draw.lines(surf, COLOR_GOLD, False, [
-                (scx - gap - 3, scy - d_size),
-                (scx - gap - 8, scy),
-                (scx - gap - 3, scy + d_size)
-            ], 2)
-            pygame.draw.lines(surf, COLOR_GOLD, False, [
-                (scx + gap + 3, scy - d_size),
-                (scx + gap + 8, scy),
-                (scx + gap + 3, scy + d_size)
-            ], 2)
-
-        elif self.target_state == CursorTargetState.DANGER:
-            # Flashing hazard triangle above reticle
-            tri = [(scx, scy - base_radius - 16), (scx - 7, scy - base_radius - 5), (scx + 7, scy - base_radius - 5)]
-            pygame.draw.polygon(surf, COLOR_CORAL_RED, tri)
-
-        elif self.target_state == CursorTargetState.PINCH:
-            # Inward grab arrows
+        # State-specific accents
+        if target_state == CursorTargetState.PINCH:
             for angle in [math.pi * 0.25, math.pi * 0.75, math.pi * 1.25, math.pi * 1.75]:
                 ax = scx + math.cos(angle) * (base_radius + 9)
                 ay = scy + math.sin(angle) * (base_radius + 9)
                 ix = scx + math.cos(angle) * (base_radius + 3)
                 iy = scy + math.sin(angle) * (base_radius + 3)
                 pygame.draw.line(surf, COLOR_GOLD, (int(ax), int(ay)), (int(ix), int(iy)), 2)
-
-        elif self.target_state == CursorTargetState.SONAR:
-            # Sonar ripple ring
+        elif target_state == CursorTargetState.SONAR:
             if self.sonar_pulse_radius > 0:
                 sonar_alpha = max(0, int(200 * (1.0 - self.sonar_pulse_radius / 65.0)))
                 pygame.draw.circle(surf, (*COLOR_OCEAN_CYAN[:3], sonar_alpha), (scx, scy), int(self.sonar_pulse_radius), 2)
 
-        # Blit Reticle onto main surface
         surface.blit(surf, (cx - scx, cy - scy))
 
-        # Small gesture badge pill next to cursor
+        # Badge
         badge_surf = self.font_badge.render(badge_text, True, main_col)
         surface.blit(badge_surf, (cx + base_radius + 12, cy - 8))
 
-        # 3. "HAND NOT DETECTED" Indicator Banner (if hand is lost)
+    def draw(self, surface: pygame.Surface) -> None:
+        """Renders custom underwater cursor(s), dual-hand tether, and status banners."""
+        # 1. Draw glowing bubble trails
+        all_bubbles = self.trail_bubbles + self.second_trail_bubbles
+        for b in all_bubbles:
+            alpha = int(255 * (b.life / b.max_life))
+            bubble_surf = pygame.Surface((int(b.radius * 2 + 4), int(b.radius * 2 + 4)), pygame.SRCALPHA)
+            bcx, bcy = int(b.radius + 2), int(b.radius + 2)
+            pygame.draw.circle(bubble_surf, (*b.color[:3], int(alpha * 0.7)), (bcx, bcy), int(b.radius))
+            pygame.draw.circle(bubble_surf, (255, 255, 255, alpha), (bcx - 1, bcy - 1), max(1, int(b.radius * 0.4)))
+            surface.blit(bubble_surf, (int(b.x - bcx), int(b.y - bcy)))
+
+        # 2. Dual Hand Swimming Indicator (Independent Cursors - No Connecting Line)
+        # Both hands operate with their own independent virtual cursors without visual tether clutter
+
+        # 3. Draw Hand Reticles
+        if self.has_second_hand:
+            # Draw Left Hand (Cyan Swim Control)
+            self._draw_single_reticle(surface, self.second_x, self.second_y, self.second_target_state, "LEFT: SWIM CONTROL", is_secondary=False)
+            # Draw Right Hand (Gold Interaction)
+            self._draw_single_reticle(surface, self.x, self.y, self.target_state, "RIGHT: INTERACT", is_secondary=True)
+        else:
+            # Single hand
+            self._draw_single_reticle(surface, self.x, self.y, self.target_state, "SWIM & INTERACT", is_secondary=True)
+
+        # 4. "HAND NOT DETECTED" Indicator Banner (if hand is lost)
         if not self.is_hand_detected:
             banner_w = 460
             banner_h = 36
@@ -258,7 +304,7 @@ class HandCursor:
             
             pulse_warn = int(180 + math.sin(time.time() * 8.0) * 75)
             warn_col = (255, pulse_warn, 50)
-            msg = "⚠️ HAND NOT DETECTED — HOLD HAND IN FRONT OF WEBCAM"
+            msg = "[!] HAND NOT DETECTED - HOLD HAND IN FRONT OF WEBCAM"
             txt_surf = self.font_warning.render(msg, True, warn_col)
             b_surf.blit(txt_surf, (banner_w // 2 - txt_surf.get_width() // 2, 8))
             

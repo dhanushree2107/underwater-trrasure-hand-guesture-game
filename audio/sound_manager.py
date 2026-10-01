@@ -194,6 +194,24 @@ class SoundManager:
             self._load_sound('click', self._synth_tone(1200.0, 0.06, 'exp', 0.35))
             self._load_sound('hover', self._synth_tone(650.0, 0.04, 'exp', 0.2))
 
+            # 12. Whirlpool vortex suction
+            whirl = self._synth_sweep(180, 70, 0.9, volume=0.55)
+            self._load_sound('whirlpool', whirl)
+
+            # 13. Electric Jellyfish zap
+            zap = self._synth_sweep(1400, 220, 0.18, volume=0.45)
+            self._load_sound('jellyfish_zap', zap)
+
+            # 14. Ancient puzzle success & seal unlocked
+            puzzle_chime = self._synth_chord([523.25, 659.25, 783.99, 1046.50, 1318.51], 0.85, volume=0.6)
+            self._load_sound('puzzle_success', puzzle_chime)
+            seal_unlocked = self._synth_chord([440.0, 554.37, 659.25, 880.0], 1.2, volume=0.7)
+            self._load_sound('ancient_seal', seal_unlocked)
+
+            # 15. Heavy treasure pickup & drop
+            heavy_thud = self._synth_sweep(120, 45, 0.35, volume=0.65)
+            self._load_sound('heavy_drop', heavy_thud)
+
         except Exception as e:
             print(f"[SoundManager] Warning during sound synthesis: {e}")
 

@@ -31,10 +31,15 @@ from config import (
 from audio.sound_manager import SoundManager
 from hand_tracking.hand_detector import HandDetector
 from hand_tracking.gesture_detector import GestureDetector, GestureType
+from hand_tracking.hand_motion import HandMotionTracker, DualSwimMotionResult, SwimTrackingStatus
 from game.particles import ParticleSystem
 from game.player import Player
 from game.level import Level
 from game.treasure import TreasureType
+from game.missions import MissionManager
+from game.inventory import DiverInventory, UnderwaterMuseum
+from game.events import OceanEventManager, OceanCondition
+from ui.tutorial import SmartTutorial
 from ui.hud import HUD
 from ui.menu import MainMenu
 from ui.instructions import HowToPlayScreen
@@ -47,11 +52,13 @@ from ui.screens import (
     VictoryScreen,
     LevelSelectScreen,
     ChallengeScreen,
+    MuseumScreen,
 )
 
 class GameState(Enum):
     MAIN_MENU = "MAIN_MENU"
     LEVEL_SELECT = "LEVEL_SELECT"
+    MUSEUM = "MUSEUM"
     CHALLENGES = "CHALLENGES"
     HOW_TO_PLAY = "HOW_TO_PLAY"
     CAMERA_CHECK = "CAMERA_CHECK"
@@ -108,8 +115,18 @@ class GameManager:
         self.sound_manager = SoundManager()
         self.hand_detector = HandDetector()
         self.gesture_detector = GestureDetector()
+        self.motion_tracker = HandMotionTracker()
+        self.mission_manager = MissionManager()
+        self.inventory = DiverInventory()
+        self.museum = UnderwaterMuseum()
+        self.ocean_events = OceanEventManager()
+        self.tutorial = SmartTutorial()
         self.particles = ParticleSystem()
         self.player = Player()
+
+        self.last_motion_result: Optional[DualSwimMotionResult] = None
+        self.last_stars: int = 3
+        self.last_side_missions_done: int = 0
 
         # Levels & Progression
         self.current_level_id = 1
@@ -134,6 +151,7 @@ class GameManager:
             on_instructions=lambda: self.set_state(GameState.HOW_TO_PLAY),
             on_camera_check=lambda: self.set_state(GameState.CAMERA_CHECK),
             on_quit=self.quit_game,
+            on_museum=lambda: self.set_state(GameState.MUSEUM),
             sound_manager=self.sound_manager
         )
         self.level_select_screen = LevelSelectScreen(
@@ -155,6 +173,10 @@ class GameManager:
             on_back=lambda: self.set_state(GameState.MAIN_MENU),
             sound_manager=self.sound_manager
         )
+        self.museum_screen = MuseumScreen(
+            on_back=lambda: self.set_state(GameState.MAIN_MENU),
+            sound_manager=self.sound_manager
+        )
         self.pause_screen = PauseScreen(
             on_resume=lambda: self.set_state(GameState.PLAYING),
             on_restart=self.restart_current_level,
@@ -164,6 +186,8 @@ class GameManager:
         self.level_complete_screen = LevelCompleteScreen(
             on_next_level=self.advance_to_next_level,
             on_menu=lambda: self.set_state(GameState.MAIN_MENU),
+            on_replay=self.restart_current_level,
+            on_museum=lambda: self.set_state(GameState.MUSEUM),
             sound_manager=self.sound_manager
         )
         self.game_over_screen = GameOverScreen(
@@ -257,13 +281,21 @@ class GameManager:
             self.set_state(GameState.VICTORY)
 
     def load_level(self, level_id: int) -> None:
-        """Initializes game level environment and entities."""
+        """Initializes game level environment, missions, and ocean events."""
         self.current_level = Level(level_id)
         self.player.reset_for_level()
         self.particles = ParticleSystem()
         self.gesture_detector.reset()
+        self.motion_tracker.reset()
         self.whirlpool_timer = 0.0
         self.octopus_timer = 0.0
+        self.mission_manager.start_level(level_id, self.current_level.required_deposits)
+        self.inventory.clear()
+        self.ocean_events.start_level(level_id)
+        if level_id == 1:
+            self.tutorial.start_tutorial()
+        else:
+            self.tutorial.active = False
 
     def toggle_fullscreen(self) -> None:
         """Toggles between immersive fullscreen and windowed display mode."""
@@ -341,14 +373,30 @@ class GameManager:
         mouse_active = (time.time() - self.last_mouse_move_time < 0.8)
 
         if hand_data.is_detected:
-            gesture_output = self.gesture_detector.process_landmarks(
-                hand_data.landmarks,
-                hand_data.screen_x,
-                hand_data.screen_y
-            )
+            if hand_data.has_second_hand:
+                gesture_output = self.gesture_detector.process_dual_landmarks(
+                    hand1_landmarks=hand_data.landmarks,
+                    hand1_x=hand_data.screen_x,
+                    hand1_y=hand_data.screen_y,
+                    hand1_label=hand_data.handedness,
+                    hand2_landmarks=hand_data.second_landmarks,
+                    hand2_x=hand_data.second_screen_x,
+                    hand2_y=hand_data.second_screen_y,
+                    hand2_label=hand_data.second_handedness,
+                    swim_target_x=hand_data.swim_target_x,
+                    swim_target_y=hand_data.swim_target_y,
+                    paddle_speed=hand_data.paddle_stroke_speed,
+                )
+            else:
+                gesture_output = self.gesture_detector.process_landmarks(
+                    hand_data.landmarks,
+                    hand_data.screen_x,
+                    hand_data.screen_y
+                )
             # Physical mouse clicks and keyboard shortcuts still assist seamlessly
             if lmb:
                 gesture_output["pinch_triggered"] = True
+                gesture_output["is_pinching"] = True
             if rmb:
                 gesture_output["sonar_triggered"] = True
             if space_key:
@@ -369,10 +417,42 @@ class GameManager:
 
         cursor_x, cursor_y = gesture_output["cursor_pos"]
         pinch_triggered = gesture_output["pinch_triggered"]
+        current_gesture = gesture_output["current_gesture"]
+        is_pinching_active = gesture_output.get("is_pinching", (current_gesture == GestureType.PINCH or pinch_triggered))
         palm_triggered = gesture_output["palm_triggered"]
         sonar_triggered = gesture_output["sonar_triggered"]
         shield_active = gesture_output["shield_active"]
-        current_gesture = gesture_output["current_gesture"]
+        is_mega_palm = gesture_output.get("is_mega_palm", False)
+        has_dual_hands = gesture_output.get("has_dual_hands", False)
+        is_dual_swimming = gesture_output.get("is_dual_hand_swimming", False)
+        paddle_boost = gesture_output.get("paddle_boost", 1.0)
+        second_cursor_pos = gesture_output.get("second_cursor_pos", None)
+        second_gesture = gesture_output.get("second_gesture", GestureType.NONE)
+
+        # Temporal Hand Motion Tracking (Velocities, Rhythm, Sync Level)
+        now_ts = time.time()
+        l_snap = None
+        r_snap = None
+        if hand_data.is_detected:
+            h1_wx = hand_data.landmarks[0][0] * SCREEN_WIDTH if hand_data.landmarks else float(hand_data.screen_x)
+            h1_wy = hand_data.landmarks[0][1] * SCREEN_HEIGHT if hand_data.landmarks else float(hand_data.screen_y)
+            h1_data = (h1_wx, h1_wy, float(hand_data.screen_x), float(hand_data.screen_y), float(hand_data.confidence if hand_data.confidence > 0 else 0.95))
+            if hand_data.has_second_hand:
+                h2_wx = hand_data.second_landmarks[0][0] * SCREEN_WIDTH if hand_data.second_landmarks else float(hand_data.second_screen_x)
+                h2_wy = hand_data.second_landmarks[0][1] * SCREEN_HEIGHT if hand_data.second_landmarks else float(hand_data.second_screen_y)
+                h2_data = (h2_wx, h2_wy, float(hand_data.second_screen_x), float(hand_data.second_screen_y), 0.92)
+                if hand_data.handedness == "Left":
+                    l_snap, r_snap = h1_data, h2_data
+                else:
+                    r_snap, l_snap = h1_data, h2_data
+            else:
+                if hand_data.handedness == "Left":
+                    l_snap = h1_data
+                else:
+                    r_snap = h1_data
+
+        self.motion_tracker.record_frame(now_ts, l_snap, r_snap)
+        self.last_motion_result = self.motion_tracker.update(dt)
 
         self.last_cursor_pos = (cursor_x, cursor_y)
 
@@ -391,6 +471,9 @@ class GameManager:
 
         elif self.current_state == GameState.CAMERA_CHECK:
             self.camera_check_screen.update(cursor_x, cursor_y, pinch_triggered, dt)
+
+        elif self.current_state == GameState.MUSEUM:
+            self.museum_screen.update(cursor_x, cursor_y, pinch_triggered, dt)
 
         elif self.current_state == GameState.PAUSED:
             self.pause_screen.update(cursor_x, cursor_y, pinch_triggered, dt)
@@ -412,13 +495,30 @@ class GameManager:
                 pinch_triggered,
                 palm_triggered,
                 sonar_triggered,
-                shield_active
+                shield_active,
+                is_dual_swimming=is_dual_swimming,
+                paddle_boost=paddle_boost,
+                second_target_x=second_cursor_pos[0] if second_cursor_pos else None,
+                second_target_y=second_cursor_pos[1] if second_cursor_pos else None,
+                is_mega_palm=is_mega_palm,
+                is_pinching_active=is_pinching_active,
+                has_dual_hands=has_dual_hands,
+                second_gesture=second_gesture,
             )
 
         # 3. Update Swimmer Kinematics, Cursor & Particles
-        is_pinching = (current_gesture == GestureType.PINCH or pinch_triggered)
-        current_force = 180.0 if (self.player.current_active_timer > 0) else 0.0
-        emit_regulator_bubble = self.player.update(dt, cursor_x, cursor_y, is_pinching, shield_active, current_force)
+        is_pinching = is_pinching_active or pinch_triggered
+        current_force = 260.0 if (self.player.current_active_timer > 0 and is_mega_palm) else (180.0 if self.player.current_active_timer > 0 else 0.0)
+        emit_regulator_bubble = self.player.update(
+            dt,
+            cursor_x,
+            cursor_y,
+            is_pinching,
+            shield_active,
+            current_force,
+            is_dual_hand_swimming=is_dual_swimming,
+            paddle_boost=paddle_boost
+        )
         
         # Scuba regulator bubble trail
         if emit_regulator_bubble:
@@ -433,6 +533,7 @@ class GameManager:
             is_hover_t = (
                 self.current_level.treasure_manager.get_hovered_treasure(cursor_x, cursor_y) is not None
                 or self.current_level.treasure_manager.get_hovered_crate(cursor_x, cursor_y) is not None
+                or (second_cursor_pos is not None and self.current_level.treasure_manager.get_hovered_treasure(second_cursor_pos[0], second_cursor_pos[1]) is not None)
             )
             is_hover_d = (
                 self.player.is_hovering_danger
@@ -446,7 +547,13 @@ class GameManager:
             is_hovering_treasure=is_hover_t,
             is_hovering_danger=is_hover_d,
             sonar_active=(current_gesture == GestureType.TWO_FINGERS or sonar_triggered),
-            dt=dt
+            dt=dt,
+            has_dual_hands=has_dual_hands,
+            second_x=second_cursor_pos[0] if second_cursor_pos else None,
+            second_y=second_cursor_pos[1] if second_cursor_pos else None,
+            second_gesture=second_gesture,
+            is_dual_swimming=is_dual_swimming,
+            paddle_boost=paddle_boost,
         )
 
     def _update_gameplay(
@@ -457,7 +564,15 @@ class GameManager:
         pinch_triggered: bool,
         palm_triggered: bool,
         sonar_triggered: bool,
-        shield_active: bool
+        shield_active: bool,
+        is_dual_swimming: bool = False,
+        paddle_boost: float = 1.0,
+        second_target_x: Optional[int] = None,
+        second_target_y: Optional[int] = None,
+        is_mega_palm: bool = False,
+        is_pinching_active: bool = False,
+        has_dual_hands: bool = False,
+        second_gesture: GestureType = GestureType.NONE,
     ) -> None:
         """Core interactive swimming, grabbing, carrying, and depositing logic."""
         current_active = (self.player.current_active_timer > 0)
@@ -469,12 +584,18 @@ class GameManager:
                 self.sound_manager.play('sonar')
                 self.particles.emit_sonar_pulse(self.player.x, self.player.y)
                 self.current_level.treasure_manager.trigger_sonar_wave(self.player.x, self.player.y, 750.0)
+                self.mission_manager.record_event("SONAR_PULSE")
 
         # Water Current Trigger
         if palm_triggered:
             if self.player.activate_water_current():
                 self.sound_manager.play('current')
-                self.particles.emit_water_current()
+                if is_mega_palm:
+                    self.particles.emit_water_current()
+                    self.particles.emit_water_current()
+                    self.particles.emit_score_popup(self.player.x, self.player.y - 40, "🌊 MEGA TIDAL CURRENT!", COLOR_OCEAN_CYAN)
+                else:
+                    self.particles.emit_water_current()
 
         # Update Level Environment, Fish, Hazards, Timers
         lvl_complete, time_expired, shark_hit, shark_deflected, jelly_hit, jelly_deflected = self.current_level.update(
@@ -488,6 +609,7 @@ class GameManager:
         if shark_deflected:
             self.sound_manager.play('bubble')
             self.particles.emit_treasure_burst(self.player.x, self.player.y, count=10, color=COLOR_NEON_TEAL)
+            self.mission_manager.record_event("SHARK_ESCAPE")
             if self.active_challenge_id == 1:
                 self.player.add_score(150)
                 self.particles.emit_score_popup(self.player.x, self.player.y - 30, "+150 SHARK DEFLECTION! 🦈", COLOR_GOLD)
@@ -495,9 +617,14 @@ class GameManager:
             self.sound_manager.play('trap')
             self.combo_count = 0
             self.combo_multiplier = 1.0
-            self.player.reduce_oxygen(35.0, shake_duration=0.5, shake_power=14.0)
             self.particles.emit_trap_explosion(self.player.x, self.player.y)
-            self.particles.emit_score_popup(self.player.x, self.player.y, "-35% OXYGEN [SHARK BITE!]", COLOR_CORAL_RED)
+            still_alive = self.player.lose_life()
+            if not still_alive:
+                self.sound_manager.play('game_over')
+                self.game_over_reason = "Out of Lives (Shark Attack!)"
+                self.set_state(GameState.GAME_OVER)
+                return
+            self.particles.emit_score_popup(self.player.x, self.player.y - 30, f"💔 1 LIFE LOST! ({self.player.lives} REMAINING)", COLOR_CORAL_RED)
 
         # Electric Jellyfish Interaction Handling
         if jelly_deflected:
@@ -505,8 +632,9 @@ class GameManager:
             self.particles.emit_treasure_burst(self.player.x, self.player.y, count=12, color=(210, 120, 255))
             self.particles.emit_score_popup(self.player.x, self.player.y - 20, "JELLY DEFLECTED! ⚡", (220, 160, 255))
             self.player.add_score(75)
+            self.mission_manager.record_event("DEFLECT_JELLYFISH")
         elif jelly_hit:
-            self.sound_manager.play('trap')
+            self.sound_manager.play('jellyfish_zap')
             self.combo_count = 0
             self.combo_multiplier = 1.0
             self.player.reduce_oxygen(15.0, shake_duration=0.45, shake_power=10.0)
@@ -526,6 +654,7 @@ class GameManager:
         )
         if pinch_triggered and hovered_crate and not hovered_crate.is_opened:
             rtype, rscore, rox, rsonar = hovered_crate.open_crate()
+            self.mission_manager.record_event("OPEN_CRATE")
             if rscore > 0:
                 self.player.add_score(rscore)
             if rox > 0:
@@ -563,7 +692,7 @@ class GameManager:
             self.player.reduce_oxygen(15.0, shake_duration=0.5, shake_power=12.0)
             self.combo_count = 0
             self.combo_multiplier = 1.0
-            self.sound_manager.play('trap')
+            self.sound_manager.play('whirlpool')
             self.particles.emit_score_popup(self.player.x, self.player.y, "-15% OXYGEN [WHIRLPOOL!]", COLOR_CORAL_RED)
 
         if w_esc:
@@ -606,10 +735,11 @@ class GameManager:
                 extra_drain = PASSIVE_OXYGEN_DEPLETION_RATE * (c_cfg.oxygen_drain_mult - 1.0) * dt
                 self.player.oxygen = max(0.0, self.player.oxygen - extra_drain)
 
-        # Hovered Object Detection (Near Swimmer or Aim Target)
+        # Hovered Object Detection (Near Swimmer, Hand 1, or Hand 2 Aim Target)
         hovered_item = (
             self.current_level.treasure_manager.get_hovered_treasure(self.player.x, self.player.y)
             or self.current_level.treasure_manager.get_hovered_treasure(target_x, target_y)
+            or (self.current_level.treasure_manager.get_hovered_treasure(second_target_x, second_target_y) if second_target_x is not None else None)
         )
         self.player.is_hovering_interactable = (hovered_item is not None)
         self.player.is_hovering_danger = (hovered_item is not None and hovered_item.revealed_timer > 0 and hovered_item.type in (TreasureType.FAKE, TreasureType.TRAP))
@@ -645,11 +775,31 @@ class GameManager:
 
         # CASE A: Player is currently carrying a treasure
         if self.player.carried_treasure is not None:
+            # Check heavy treasure instability (Section 9)
+            if self.player.carried_treasure.type == TreasureType.HEAVY and second_target_x is not None and second_target_y is not None:
+                hand_dist = math.hypot(target_x - second_target_x, target_y - second_target_y)
+                if hand_dist > 440.0 or hand_dist < 60.0:
+                    dropped_item = self.player.release_carried_treasure()
+                    dropped_item.drop(self.player.x, self.player.y)
+                    self.sound_manager.play('heavy_drop')
+                    self.particles.emit_score_popup(self.player.x, self.player.y - 35, "⚠️ HANDS UNSTABLE! CHEST DROPPED!", COLOR_CORAL_RED)
+
             # Reached the treasure chest depot -> Deposit safely into vault!
-            if in_chest_zone:
+            if self.player.carried_treasure is not None and in_chest_zone:
                 deposited_item = self.player.release_carried_treasure()
                 deposited_item.collected = True
                 self.current_level.deposited_count += 1
+                self.inventory.add_treasure(deposited_item)
+
+                unlocked_artifact = self.museum.register_treasure_deposit(deposited_item)
+                if unlocked_artifact:
+                    self.sound_manager.play('puzzle_success')
+                    self.particles.emit_score_popup(self.player.x, self.player.y - 50, f"MUSEUM UNLOCKED: {unlocked_artifact.name}! 🏛️", COLOR_GOLD)
+
+                if deposited_item.type == TreasureType.HEAVY:
+                    self.mission_manager.record_event("HEAVY_DEPOSIT")
+                else:
+                    self.mission_manager.record_event("DEPOSIT")
 
                 # Dynamic combo streak multiplier!
                 self.combo_count += 1
@@ -662,7 +812,7 @@ class GameManager:
                     self.player.oxygen = min(100.0, self.player.oxygen + 20.0)
                     self.particles.emit_score_popup(self.player.x, self.player.y - 45, "+20% OXYGEN RECHARGE! 🔋", COLOR_EMERALD)
 
-                if deposited_item.type in (TreasureType.RARE, TreasureType.ANCIENT):
+                if deposited_item.type in (TreasureType.RARE, TreasureType.ANCIENT, TreasureType.HEAVY):
                     self.sound_manager.play('rare_treasure')
                 else:
                     self.sound_manager.play('treasure')
@@ -681,9 +831,14 @@ class GameManager:
                     self.combo_count = 0
                     self.combo_multiplier = 1.0
                     self.sound_manager.play('trap')
-                    self.player.reduce_oxygen(hovered_item.oxygen_penalty, shake_duration=0.6, shake_power=16.0)
                     self.particles.emit_trap_explosion(hovered_item.x, hovered_item.y)
-                    self.particles.emit_score_popup(hovered_item.x, hovered_item.y, "-25% OXYGEN [MINE!]", COLOR_CORAL_RED)
+                    still_alive = self.player.lose_life()
+                    if not still_alive:
+                        self.sound_manager.play('game_over')
+                        self.game_over_reason = "Out of Lives (Sea Mine Explosion!)"
+                        self.set_state(GameState.GAME_OVER)
+                        return
+                    self.particles.emit_score_popup(hovered_item.x, hovered_item.y, f"💔 MINE DETONATION! ({self.player.lives} LIVES)", COLOR_CORAL_RED)
 
                 elif hovered_item.type == TreasureType.FAKE:
                     # Deceptive Counterfeit Penalty!
@@ -695,12 +850,29 @@ class GameManager:
                     self.player.reduce_oxygen(hovered_item.oxygen_penalty, shake_duration=0.4, shake_power=8.0)
                     self.particles.emit_score_popup(hovered_item.x, hovered_item.y, f"{hovered_item.score_value} FAKE PENALTY!", COLOR_AMBER_WARNING)
 
+                elif hovered_item.type == TreasureType.HEAVY:
+                    # Heavy Relic: Requires Both Hands to Lift (Section 9)
+                    can_lift = has_dual_hands and (is_pinching_active or pinch_triggered) and (second_gesture in (GestureType.PINCH, GestureType.FIST) or pinch_triggered)
+                    if not can_lift:
+                        self.sound_manager.play('fake_warning')
+                        self.particles.emit_score_popup(hovered_item.x, hovered_item.y - 35, "HEAVY TREASURE! USE BOTH HANDS 👐", COLOR_GOLD)
+                    else:
+                        self.player.grab_treasure(hovered_item)
+                        self.sound_manager.play('treasure')
+                        self.particles.emit_score_popup(self.player.x, self.player.y - 20, "HEAVY RELIC LIFTED! 👐 SWIM TO CHEST", COLOR_GOLD)
+
                 else:
                     # Genuine Relic: Grab and Carry!
-                    # If already in the chest zone, deposit immediately; otherwise attach to swimmer hands!
                     if in_chest_zone:
                         hovered_item.collected = True
                         self.current_level.deposited_count += 1
+                        self.inventory.add_treasure(hovered_item)
+                        unlocked_artifact = self.museum.register_treasure_deposit(hovered_item)
+                        if unlocked_artifact:
+                            self.sound_manager.play('puzzle_success')
+                            self.particles.emit_score_popup(self.player.x, self.player.y - 50, f"MUSEUM UNLOCKED: {unlocked_artifact.name}! 🏛️", COLOR_GOLD)
+                        self.mission_manager.record_event("DEPOSIT")
+
                         self.combo_count += 1
                         self.combo_multiplier = min(3.0, 1.0 + (self.combo_count - 1) * 0.5)
                         earned_score = int(hovered_item.score_value * self.combo_multiplier)
@@ -714,11 +886,34 @@ class GameManager:
                         self.sound_manager.play('treasure')
                         self.particles.emit_score_popup(self.player.x, self.player.y - 20, "GRABBED! 🤏 SWIM TO CHEST", COLOR_GOLD)
 
+        # Update Mission Manager, Dynamic Ocean Events, and Smart Tutorial
+        self.mission_manager.update_time(dt)
+        self.ocean_events.update(dt, swimmer_pos=(self.player.x, self.player.y), is_dual_swimming=is_dual_swimming)
+
+        if self.tutorial.active:
+            self.tutorial.update(
+                dt,
+                is_hand_detected=self.is_hand_detected,
+                is_moving=(abs(self.player.vx) > 30.0 or abs(self.player.vy) > 30.0),
+                motion_result=self.last_motion_result,
+                is_pinching=is_pinching_active or pinch_triggered,
+                is_carrying=(self.player.carried_treasure is not None),
+                deposited_count=self.current_level.deposited_count,
+                sonar_used=sonar_triggered
+            )
+
         # Check Level Completion (Objective Reached)
         if lvl_complete:
             self.completed_levels.add(self.current_level_id)
             self.unlocked_levels = max(self.unlocked_levels, self.current_level_id + 1)
             self.sound_manager.play('level_complete')
+            stars, side_done = self.mission_manager.calculate_stars(
+                remaining_oxygen=self.player.oxygen,
+                time_remaining=self.current_level.time_remaining,
+                lives=self.player.lives
+            )
+            self.last_stars = stars
+            self.last_side_missions_done = side_done
             self.set_state(GameState.LEVEL_COMPLETE)
 
         # Check Loss Conditions
@@ -757,7 +952,12 @@ class GameManager:
             hand_data = self.hand_detector.get_latest_data()
             annotated_frame = None
             if hand_data.raw_frame is not None:
-                annotated_frame = self.hand_detector.render_debug_overlay(hand_data.raw_frame, hand_data.landmarks)
+                lms_to_draw = []
+                if hand_data.landmarks:
+                    lms_to_draw.append(hand_data.landmarks)
+                if hand_data.has_second_hand and hand_data.second_landmarks:
+                    lms_to_draw.append(hand_data.second_landmarks)
+                annotated_frame = self.hand_detector.render_debug_overlay(hand_data.raw_frame, lms_to_draw)
             
             self.camera_check_screen.draw(
                 scene_surf,
@@ -766,8 +966,13 @@ class GameManager:
                 hand_detected=hand_data.is_detected,
                 current_gesture=self.gesture_detector.current_gesture,
                 pinch_dist=self.gesture_detector.pinch_distance,
-                camera_fps=self.hand_detector.actual_fps
+                camera_fps=self.hand_detector.actual_fps,
+                num_hands=hand_data.num_hands,
+                second_gesture=self.gesture_detector.second_current_gesture if hand_data.has_second_hand else None,
             )
+
+        elif self.current_state == GameState.MUSEUM:
+            self.museum_screen.draw(scene_surf, self.museum)
 
         elif self.current_state in (GameState.PLAYING, GameState.PAUSED, GameState.LEVEL_COMPLETE, GameState.GAME_OVER, GameState.VICTORY):
             if self.current_level:
@@ -780,6 +985,9 @@ class GameManager:
                 # Interactive Treasures & Treasure Chest Depot
                 self.current_level.treasure_manager.draw(scene_surf)
                 
+                # Dynamic Ancient Entities / Guardian / Seals (Level 5)
+                self.ocean_events.draw(scene_surf)
+
                 # Active Underwater Swimmer Explorer
                 self.player.draw_swimmer(scene_surf)
 
@@ -793,7 +1001,27 @@ class GameManager:
                 # Foreground Visual Effects & Streams
                 self.particles.draw_foreground(scene_surf)
 
-                # In-Game HUD with Objective Progress, Minimap & Carry status
+                # Smart Progressive Tutorial Overlay (Level 1)
+                if self.tutorial.active:
+                    self.tutorial.draw(scene_surf)
+
+                # Subtle Treasure Compass Target
+                compass_target = None
+                if self.player.carried_treasure is not None:
+                    compass_target = (self.current_level.treasure_manager.chest.x, self.current_level.treasure_manager.chest.y, "DEPOSIT VAULT")
+                else:
+                    nearest_t = None
+                    min_d = float('inf')
+                    for t in self.current_level.treasure_manager.treasures:
+                        if not t.collected and t.type not in (TreasureType.TRAP, TreasureType.FAKE):
+                            d = math.hypot(t.x - self.player.x, t.y - self.player.y)
+                            if d < min_d:
+                                min_d = d
+                                nearest_t = t
+                    if nearest_t:
+                        compass_target = (nearest_t.x, nearest_t.y, nearest_t.type.value)
+
+                # In-Game HUD with Objective Progress, Minimap, Lives, Sync Meter & Compass
                 carried_name = self.player.carried_treasure.type.value if self.player.carried_treasure else None
                 self.hud.draw(
                     scene_surf,
@@ -814,7 +1042,14 @@ class GameManager:
                     player_pos=(self.player.x, self.player.y),
                     chest_pos=(self.current_level.treasure_manager.chest.x, self.current_level.treasure_manager.chest.y),
                     exploration_ratio=self.current_level.get_exploration_ratio(),
-                    explored_grid=self.current_level.explored_grid
+                    explored_grid=self.current_level.explored_grid,
+                    lives=self.player.lives,
+                    sync_level=self.last_motion_result.sync_level if self.last_motion_result else 0.85,
+                    is_combo_swim=self.last_motion_result.is_combo_swim if self.last_motion_result else False,
+                    left_confidence=self.last_motion_result.left_confidence if self.last_motion_result else 0.95,
+                    right_confidence=self.last_motion_result.right_confidence if self.last_motion_result else 0.92,
+                    compass_target=compass_target,
+                    ocean_condition=self.ocean_events.get_current_condition().name
                 )
 
             # State Modals
@@ -826,7 +1061,11 @@ class GameManager:
                     level_name=self.current_level.config.name,
                     level_score=self.player.level_score,
                     total_score=self.player.score,
-                    remaining_oxygen=self.player.oxygen
+                    remaining_oxygen=self.player.oxygen,
+                    best_combo=self.combo_multiplier,
+                    side_missions_done=self.last_side_missions_done,
+                    total_side_missions=len(self.mission_manager.active_side_missions) if self.mission_manager.active_side_missions else 3,
+                    stars=self.last_stars
                 )
             elif self.current_state == GameState.GAME_OVER:
                 self.game_over_screen.draw(

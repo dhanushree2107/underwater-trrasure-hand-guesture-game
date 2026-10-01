@@ -36,7 +36,7 @@ class HowToPlayScreen:
         btn_w, btn_h = 240, 48
         self.back_button = Button(
             rect=pygame.Rect(SCREEN_WIDTH // 2 - btn_w // 2, SCREEN_HEIGHT - 75, btn_w, btn_h),
-            text="◀ BACK TO MENU",
+            text="BACK TO MENU",
             on_click=self.on_back,
             sound_manager=self.sound_manager,
             accent_color=COLOR_NEON_TEAL
@@ -61,24 +61,24 @@ class HowToPlayScreen:
         # 5 Gesture Instruction Cards
         cards = [
             {
-                "icon": "🖐",
-                "title": "HAND SWIMMING",
-                "action": "Pilot Swimmer",
-                "desc": "Your hand controls the underwater swimmer! Move hand left, right, up, down to guide the diver through the abyss.",
+                "icon": "🏊",
+                "title": "DUAL-HAND SWIM",
+                "action": "Pilot 1 or Both Hands",
+                "desc": "Use one or BOTH hands to swim! Put both hands up to steer diver. Paddle hands in swimming strokes to trigger a high-speed propulsion boost!",
                 "col": COLOR_NEON_TEAL
             },
             {
                 "icon": "👆",
                 "title": "INDEX CLICK / PINCH",
                 "action": "Grab & Deposit",
-                "desc": "Tap your index finger down or pinch thumb & index to CLICK! Grabs relics, deposits into chest vault, and clicks menu buttons. Fallback: Left Click.",
+                "desc": "Pinch thumb & index or tap index with EITHER hand to CLICK! Grabs relics, deposits in chest vault, or clicks menu buttons. Fallback: Left Click.",
                 "col": COLOR_GOLD
             },
             {
                 "icon": "✋",
                 "title": "OPEN PALM",
                 "action": "Water Current",
-                "desc": "Extend all 5 fingers spread out to unleash a rushing water current. Disperses schools of fish and shifts relics. Fallback: Spacebar.",
+                "desc": "Extend 5 fingers spread out for rushing water current. Open BOTH hands simultaneously to unleash a MEGA TIDAL WAVE! Fallback: Spacebar.",
                 "col": COLOR_OCEAN_CYAN
             },
             {
@@ -92,7 +92,7 @@ class HowToPlayScreen:
                 "icon": "✊",
                 "title": "FIST GESTURE",
                 "action": "Energy Shield",
-                "desc": "Curl all fingers into a tight fist to activate your bubble shield. Deflects apex predators like sharks! Fallback: Hold 'S'.",
+                "desc": "Curl into a fist to activate bubble shield. You can hold shield with one hand while grabbing relics with the other! Fallback: Hold 'S'.",
                 "col": (190, 120, 240)
             },
         ]

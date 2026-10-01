@@ -182,7 +182,9 @@ A dedicated expedition trial system (`ABYSSAL CHALLENGES ⚡`) provides high-sta
 * **Audio Device Failure**: If audio devices fail to initialize, methods safely default to silent operations without raising unhandled exceptions.
 
 ### 3. Automated Test Coverage
-The project includes a **35-test automated suite** executed via Pytest:
+The project includes a **48-test automated suite** executed via Pytest:
+* **`tests/test_full_adventure_systems.py`**: Two-hand motion tracking (directions, stroke rhythm, sync level 0-100%), fluid swimming physics engine, 3-life survival & invulnerability, two-hand heavy treasure mechanics & distance instability, underwater museum exhibit unlocks, level missions & 1-3 star performance ratings, and Level 5 ancient seal & guardian mechanisms.
+* **`tests/test_dual_hand.py`**: Dual-hand cooperative gestures (fist shield + pinch grab), independent pinching, mega tidal current bursts, and two-hand propulsion boosts.
 * **`tests/test_adventure_systems.py`**: Mystery crates, air bubble stations, whirlpool suction & escape, octopus ambush collision, ancient gesture puzzle sequence, and exploration fog grid.
 * **`tests/test_challenges.py`**: Abyssal challenge lifecycle, jellyfish kinematics, shield deflection, and combo streak progression/resets.
 * **`tests/test_collision.py`**: Mathematical collision primitives (circle-point, circle-circle, rect-point).

@@ -31,9 +31,22 @@ from config import (
 )
 
 @dataclass
+class SingleHandData:
+    """Detection data for an individual hand."""
+    landmarks: List[Tuple[float, float, float]] = field(default_factory=list)
+    screen_x: float = SCREEN_WIDTH // 2
+    screen_y: float = SCREEN_HEIGHT // 2
+    handedness: str = "Unknown"  # "Left" or "Right"
+    confidence: float = 0.95
+
+@dataclass
 class HandDetectionResult:
-    """Encapsulates hand detection output for a single frame."""
+    """Encapsulates hand detection output for a single frame, supporting single and dual hands."""
     is_detected: bool = False
+    num_hands: int = 0
+    hands: List[SingleHandData] = field(default_factory=list)
+
+    # Primary hand (for full backwards compatibility)
     landmarks: List[Tuple[float, float, float]] = field(default_factory=list)  # (x, y, z) normalized
     screen_x: float = SCREEN_WIDTH // 2
     screen_y: float = SCREEN_HEIGHT // 2
@@ -41,6 +54,19 @@ class HandDetectionResult:
     handedness: str = "Unknown"
     confidence: float = 0.0
     timestamp: float = 0.0
+
+    # Dual-hand properties
+    has_second_hand: bool = False
+    second_landmarks: List[Tuple[float, float, float]] = field(default_factory=list)
+    second_screen_x: float = SCREEN_WIDTH // 2
+    second_screen_y: float = SCREEN_HEIGHT // 2
+    second_handedness: str = "Unknown"
+
+    # Dual-hand swimming target & paddle mechanics
+    swim_target_x: float = SCREEN_WIDTH // 2
+    swim_target_y: float = SCREEN_HEIGHT // 2
+    is_dual_hand_swimming: bool = False
+    paddle_stroke_speed: float = 0.0
 
 
 class HandDetector:
@@ -78,12 +104,23 @@ class HandDetector:
         self.thread: Optional[threading.Thread] = None
         self.actual_fps: float = 0.0
 
-        # Hand Tracking Persistence Buffer (prevents flickering frame drops)
+        # Dual-hand Swimming Stroke Physics Tracking
+        self.prev_hands_dist: float = 0.0
+        self.prev_midpoint: Tuple[float, float] = (SCREEN_WIDTH / 2.0, SCREEN_HEIGHT / 2.0)
+        self.prev_stroke_time: float = 0.0
+        self.paddle_stroke_speed: float = 0.0
+
+        # Hand Tracking Persistence Buffer (supports both hands)
         self.last_detected_time: float = 0.0
         self.persisted_landmarks: List[Tuple[float, float, float]] = []
         self.persisted_screen_x: float = float(SCREEN_WIDTH // 2)
         self.persisted_screen_y: float = float(SCREEN_HEIGHT // 2)
         self.persisted_handedness: str = "Unknown"
+        self.persisted_second_landmarks: List[Tuple[float, float, float]] = []
+        self.persisted_second_screen_x: float = float(SCREEN_WIDTH // 2)
+        self.persisted_second_screen_y: float = float(SCREEN_HEIGHT // 2)
+        self.persisted_second_handedness: str = "Unknown"
+        self.persisted_num_hands: int = 0
         self.persistence_duration: float = 0.55  # Maintain tracking across 550ms dropouts
 
         self._init_mediapipe()
@@ -198,14 +235,40 @@ class HandDetector:
 
             time.sleep(0.005)  # Yield slice
 
+    def _calculate_screen_coords(self, landmarks: List[Tuple[float, float, float]]) -> Tuple[float, float]:
+        """Calculates stabilized screen coordinates from hand landmarks."""
+        index_tip = landmarks[8]
+        index_pip = landmarks[6]
+        cursor_norm_x = index_tip[0] * 0.75 + index_pip[0] * 0.25
+        cursor_norm_y = index_tip[1] * 0.75 + index_pip[1] * 0.25
+
+        active_min_x, active_max_x = 0.14, 0.86
+        active_min_y, active_max_y = 0.10, 0.90
+
+        norm_x = (cursor_norm_x - active_min_x) / (active_max_x - active_min_x)
+        norm_y = (cursor_norm_y - active_min_y) / (active_max_y - active_min_y)
+        norm_x = max(0.0, min(1.0, norm_x))
+        norm_y = max(0.0, min(1.0, norm_y))
+
+        playable_w = SCREEN_WIDTH - 2 * CURSOR_MARGIN
+        playable_h = SCREEN_HEIGHT - 2 * CURSOR_MARGIN
+        screen_x = CURSOR_MARGIN + norm_x * playable_w
+        screen_y = CURSOR_MARGIN + norm_y * playable_h
+
+        return (
+            max(float(CURSOR_MARGIN), min(float(SCREEN_WIDTH - CURSOR_MARGIN), screen_x)),
+            max(float(CURSOR_MARGIN), min(float(SCREEN_HEIGHT - CURSOR_MARGIN), screen_y)),
+        )
+
     def _process_frame(self, frame: np.ndarray) -> HandDetectionResult:
-        """Executes landmark estimation on a single frame."""
+        """Executes landmark estimation on a single frame, detecting up to 2 hands for dual-hand swimming."""
         h, w, _ = frame.shape
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        now = time.time()
         
         detection = HandDetectionResult(
             raw_frame=frame,
-            timestamp=time.time()
+            timestamp=now
         )
 
         if not self.hands_detector:
@@ -214,63 +277,135 @@ class HandDetector:
         try:
             results = self.hands_detector.process(rgb_frame)
             if results.multi_hand_landmarks:
-                # Use primary hand (first detected hand)
-                hand_landmarks = results.multi_hand_landmarks[0]
-                landmarks = [(lm.x, lm.y, lm.z) for lm in hand_landmarks.landmark]
-                
-                # Handedness label
-                handedness_label = "Unknown"
-                if results.multi_handedness:
-                    handedness_label = results.multi_handedness[0].classification[0].label
+                num_detected = len(results.multi_hand_landmarks)
+                detected_hands: List[SingleHandData] = []
 
-                # Anchor cursor directly to index finger with tap stability blend
-                index_tip = landmarks[8]
-                index_pip = landmarks[6]
-                cursor_norm_x = index_tip[0] * 0.75 + index_pip[0] * 0.25
-                cursor_norm_y = index_tip[1] * 0.75 + index_pip[1] * 0.25
+                for idx, hand_lms in enumerate(results.multi_hand_landmarks):
+                    landmarks = [(lm.x, lm.y, lm.z) for lm in hand_lms.landmark]
+                    sx, sy = self._calculate_screen_coords(landmarks)
+                    
+                    # Handedness label
+                    label = "Hand"
+                    if results.multi_handedness and idx < len(results.multi_handedness):
+                        label = results.multi_handedness[idx].classification[0].label
 
-                # Active interaction area re-mapping:
-                # Normal human hand range in webcam FOV is ~0.16 to 0.84 X and 0.12 to 0.88 Y.
-                # Remapping to [0.0, 1.0] allows effortless screen reach without arm contortion.
-                active_min_x, active_max_x = 0.16, 0.84
-                active_min_y, active_max_y = 0.12, 0.88
+                    detected_hands.append(SingleHandData(
+                        landmarks=landmarks,
+                        screen_x=sx,
+                        screen_y=sy,
+                        handedness=label,
+                        confidence=0.95
+                    ))
 
-                norm_x = (cursor_norm_x - active_min_x) / (active_max_x - active_min_x)
-                norm_y = (cursor_norm_y - active_min_y) / (active_max_y - active_min_y)
-                norm_x = max(0.0, min(1.0, norm_x))
-                norm_y = max(0.0, min(1.0, norm_y))
+                # If two hands detected, sort horizontally: Left hand (smaller X) and Right hand (larger X)
+                if num_detected >= 2:
+                    detected_hands.sort(key=lambda hnd: hnd.screen_x)
+                    left_hand = detected_hands[0]
+                    right_hand = detected_hands[1]
+                    left_hand.handedness = "Left"
+                    right_hand.handedness = "Right"
 
-                # Map to screen area with margin inset
-                playable_w = SCREEN_WIDTH - 2 * CURSOR_MARGIN
-                playable_h = SCREEN_HEIGHT - 2 * CURSOR_MARGIN
-                screen_x = CURSOR_MARGIN + norm_x * playable_w
-                screen_y = CURSOR_MARGIN + norm_y * playable_h
+                    # Populate dual detection result
+                    detection.is_detected = True
+                    detection.num_hands = 2
+                    detection.hands = [left_hand, right_hand]
 
-                # Clamp within display boundaries
-                screen_x = max(CURSOR_MARGIN, min(SCREEN_WIDTH - CURSOR_MARGIN, screen_x))
-                screen_y = max(CURSOR_MARGIN, min(SCREEN_HEIGHT - CURSOR_MARGIN, screen_y))
+                    # Primary hand (Right hand for dominant pointing)
+                    detection.landmarks = right_hand.landmarks
+                    detection.screen_x = right_hand.screen_x
+                    detection.screen_y = right_hand.screen_y
+                    detection.handedness = "Right"
+                    detection.confidence = 0.95
 
+                    # Second hand (Left hand)
+                    detection.has_second_hand = True
+                    detection.second_landmarks = left_hand.landmarks
+                    detection.second_screen_x = left_hand.screen_x
+                    detection.second_screen_y = left_hand.screen_y
+                    detection.second_handedness = "Left"
+
+                    # Dual-hand Swimming Navigation:
+                    # Swimmer target is the midpoint between both hands!
+                    mid_x = (left_hand.screen_x + right_hand.screen_x) / 2.0
+                    mid_y = (left_hand.screen_y + right_hand.screen_y) / 2.0
+                    detection.swim_target_x = mid_x
+                    detection.swim_target_y = mid_y
+                    detection.is_dual_hand_swimming = True
+
+                    # Calculate Swimming Paddle Stroke speed
+                    dt_stroke = max(0.01, now - self.prev_stroke_time) if self.prev_stroke_time > 0 else 0.033
+                    self.prev_stroke_time = now
+                    current_dist = math.hypot(right_hand.screen_x - left_hand.screen_x, right_hand.screen_y - left_hand.screen_y)
+                    dist_delta = abs(current_dist - self.prev_hands_dist) if self.prev_hands_dist > 0 else 0.0
+                    mid_delta = math.hypot(mid_x - self.prev_midpoint[0], mid_y - self.prev_midpoint[1])
+                    self.prev_hands_dist = current_dist
+                    self.prev_midpoint = (mid_x, mid_y)
+
+                    raw_stroke_speed = (dist_delta * 0.75 + mid_delta * 0.45) / dt_stroke
+                    self.paddle_stroke_speed = self.paddle_stroke_speed * 0.65 + raw_stroke_speed * 0.35
+                    detection.paddle_stroke_speed = self.paddle_stroke_speed
+
+                    # Update dual persistence cache
+                    self.last_detected_time = now
+                    self.persisted_num_hands = 2
+                    self.persisted_landmarks = right_hand.landmarks
+                    self.persisted_screen_x = right_hand.screen_x
+                    self.persisted_screen_y = right_hand.screen_y
+                    self.persisted_handedness = "Right"
+                    self.persisted_second_landmarks = left_hand.landmarks
+                    self.persisted_second_screen_x = left_hand.screen_x
+                    self.persisted_second_screen_y = left_hand.screen_y
+                    self.persisted_second_handedness = "Left"
+
+                else:
+                    # Single hand detected
+                    single = detected_hands[0]
+                    detection.is_detected = True
+                    detection.num_hands = 1
+                    detection.hands = [single]
+                    detection.landmarks = single.landmarks
+                    detection.screen_x = single.screen_x
+                    detection.screen_y = single.screen_y
+                    detection.handedness = single.handedness
+                    detection.confidence = 0.95
+                    detection.swim_target_x = single.screen_x
+                    detection.swim_target_y = single.screen_y
+                    detection.is_dual_hand_swimming = False
+                    detection.paddle_stroke_speed = 0.0
+
+                    # Update single persistence cache
+                    self.last_detected_time = now
+                    self.persisted_num_hands = 1
+                    self.persisted_landmarks = single.landmarks
+                    self.persisted_screen_x = single.screen_x
+                    self.persisted_screen_y = single.screen_y
+                    self.persisted_handedness = single.handedness
+                    self.persisted_second_landmarks = []
+
+            elif (now - self.last_detected_time < self.persistence_duration) and self.persisted_landmarks:
+                # Maintain rock-steady tracking across momentary frame drops
                 detection.is_detected = True
-                detection.landmarks = landmarks
-                detection.screen_x = screen_x
-                detection.screen_y = screen_y
-                detection.handedness = handedness_label
-                detection.confidence = 0.95
-
-                # Update persistence cache
-                self.last_detected_time = time.time()
-                self.persisted_landmarks = landmarks
-                self.persisted_screen_x = screen_x
-                self.persisted_screen_y = screen_y
-                self.persisted_handedness = handedness_label
-            elif (time.time() - self.last_detected_time < self.persistence_duration) and self.persisted_landmarks:
-                # Maintain rock-steady tracking across momentary webcam frame drops
-                detection.is_detected = True
+                detection.confidence = 0.60
+                detection.num_hands = self.persisted_num_hands
                 detection.landmarks = self.persisted_landmarks
                 detection.screen_x = self.persisted_screen_x
                 detection.screen_y = self.persisted_screen_y
                 detection.handedness = self.persisted_handedness
-                detection.confidence = 0.60
+
+                if self.persisted_num_hands >= 2 and self.persisted_second_landmarks:
+                    detection.has_second_hand = True
+                    detection.second_landmarks = self.persisted_second_landmarks
+                    detection.second_screen_x = self.persisted_second_screen_x
+                    detection.second_screen_y = self.persisted_second_screen_y
+                    detection.second_handedness = self.persisted_second_handedness
+                    detection.swim_target_x = (self.persisted_screen_x + self.persisted_second_screen_x) / 2.0
+                    detection.swim_target_y = (self.persisted_screen_y + self.persisted_second_screen_y) / 2.0
+                    detection.is_dual_hand_swimming = True
+                    detection.paddle_stroke_speed = self.paddle_stroke_speed
+                else:
+                    detection.swim_target_x = self.persisted_screen_x
+                    detection.swim_target_y = self.persisted_screen_y
+                    detection.is_dual_hand_swimming = False
             else:
                 detection.is_detected = False
 
@@ -284,25 +419,40 @@ class HandDetector:
         with self.lock:
             return self.latest_result
 
-    def render_debug_overlay(self, frame: np.ndarray, landmarks: List[Tuple[float, float, float]]) -> np.ndarray:
-        """Draws landmark skeleton onto frame for camera preview / debug mode."""
+    def render_debug_overlay(self, frame: np.ndarray, landmarks) -> np.ndarray:
+        """Draws landmark skeleton for all active hands onto frame for preview/diagnostics."""
         if not landmarks or not self.mp_drawing or not self.mp_hands:
             return frame
 
         annotated = frame.copy()
         h, w, _ = frame.shape
-        # Reconstruct landmark proto
         from mediapipe.framework.formats import landmark_pb2
-        proto = landmark_pb2.NormalizedLandmarkList()
-        for x, y, z in landmarks:
-            lm = proto.landmark.add()
-            lm.x, lm.y, lm.z = x, y, z
-        
-        self.mp_drawing.draw_landmarks(
-            annotated,
-            proto,
-            self.mp_hands.HAND_CONNECTIONS,
-            self.mp_drawing.DrawingSpec(color=(0, 245, 212), thickness=2, circle_radius=3),
-            self.mp_drawing.DrawingSpec(color=(0, 180, 216), thickness=2, circle_radius=2)
-        )
+
+        # Support single hand landmark list or list of hand landmarks [[(x,y,z)...], [(x,y,z)...]]
+        if len(landmarks) > 0 and isinstance(landmarks[0], list):
+            hand_list = landmarks
+        else:
+            hand_list = [landmarks]
+
+        palettes = [
+            ((0, 245, 212), (0, 180, 216)),    # Cyan / Neon Teal (Right / Hand 1)
+            ((255, 215, 0), (255, 140, 0)),    # Gold / Amber (Left / Hand 2)
+        ]
+
+        for idx, h_lms in enumerate(hand_list):
+            if not h_lms:
+                continue
+            proto = landmark_pb2.NormalizedLandmarkList()
+            for x, y, z in h_lms:
+                lm = proto.landmark.add()
+                lm.x, lm.y, lm.z = x, y, z
+            
+            c_pt, c_line = palettes[idx % len(palettes)]
+            self.mp_drawing.draw_landmarks(
+                annotated,
+                proto,
+                self.mp_hands.HAND_CONNECTIONS,
+                self.mp_drawing.DrawingSpec(color=c_pt, thickness=2, circle_radius=3),
+                self.mp_drawing.DrawingSpec(color=c_line, thickness=2, circle_radius=2)
+            )
         return annotated
