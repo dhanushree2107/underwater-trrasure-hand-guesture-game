@@ -557,3 +557,147 @@ class LevelSelectScreen:
 
         self.back_btn.draw(surface)
 
+
+class ChallengeScreen:
+    """Displays high-stakes abyssal challenges with glassmorphic cards and hover dwell."""
+
+    def __init__(
+        self,
+        on_start_challenge: Callable[[int], None],
+        on_back: Callable[[], None],
+        sound_manager: Optional[SoundManager] = None
+    ):
+        self.on_start_challenge = on_start_challenge
+        self.on_back = on_back
+        self.sound_manager = sound_manager
+
+        self.font_title = pygame.font.SysFont("segoeui", 34, bold=True)
+        self.font_sub = pygame.font.SysFont("segoeui", 17)
+        self.font_card_title = pygame.font.SysFont("segoeui", 18, bold=True)
+        self.font_card_sub = pygame.font.SysFont("segoeui", 13, bold=True)
+        self.font_card_desc = pygame.font.SysFont("segoeui", 12)
+        self.font_badge = pygame.font.SysFont("segoeui", 13, bold=True)
+        self.font_icon = pygame.font.SysFont("segoeuiemoji", 28)
+
+        self.card_dwells = {i: 0.0 for i in (1, 2, 3)}
+        btn_w, btn_h = 240, 48
+        self.back_btn = Button(
+            pygame.Rect(SCREEN_WIDTH // 2 - btn_w // 2, SCREEN_HEIGHT - 70, btn_w, btn_h),
+            "◀ MAIN MENU",
+            on_click=self.on_back,
+            sound_manager=self.sound_manager,
+            accent_color=COLOR_NEON_TEAL
+        )
+
+    def update(self, cursor_x: int, cursor_y: int, is_clicked: bool, dt: float) -> None:
+        self.back_btn.update(cursor_x, cursor_y, is_clicked, dt)
+
+        card_w = 340
+        card_h = 360
+        start_x = (SCREEN_WIDTH - (3 * card_w + 2 * 30)) // 2
+        spacing = card_w + 30
+        card_y = 135
+
+        for cid in (1, 2, 3):
+            cx = start_x + (cid - 1) * spacing
+            btn_rect = pygame.Rect(cx + 20, card_y + card_h - 55, card_w - 40, 40)
+            card_rect = pygame.Rect(cx, card_y, card_w, card_h)
+
+            is_hovered = (btn_rect.collidepoint(cursor_x, cursor_y) or card_rect.collidepoint(cursor_x, cursor_y))
+            if is_hovered:
+                self.card_dwells[cid] += dt
+            else:
+                self.card_dwells[cid] = max(0.0, self.card_dwells[cid] - dt * 2.0)
+
+            dwell_trigger = (self.card_dwells[cid] >= 0.50)
+            if is_hovered and (is_clicked or dwell_trigger):
+                if self.sound_manager:
+                    self.sound_manager.play('click')
+                self.card_dwells[cid] = 0.0
+                self.on_start_challenge(cid)
+                break
+
+    def draw(self, surface: pygame.Surface) -> None:
+        bg_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        bg_surf.fill((6, 14, 30, 245))
+        surface.blit(bg_surf, (0, 0))
+
+        # Title
+        t_surf = self.font_title.render("EXPEDITION CHALLENGES ⚡", True, COLOR_GOLD)
+        s_surf = self.font_sub.render("High-stakes abyssal trials testing your computer vision reflexes and precision", True, COLOR_OCEAN_CYAN)
+        surface.blit(t_surf, (SCREEN_WIDTH // 2 - t_surf.get_width() // 2, 25))
+        surface.blit(s_surf, (SCREEN_WIDTH // 2 - s_surf.get_width() // 2, 72))
+
+        from config import CHALLENGES
+
+        card_w = 340
+        card_h = 360
+        start_x = (SCREEN_WIDTH - (3 * card_w + 2 * 30)) // 2
+        spacing = card_w + 30
+        card_y = 135
+
+        for cid in (1, 2, 3):
+            cfg = CHALLENGES[cid]
+            cx = start_x + (cid - 1) * spacing
+            card_rect = pygame.Rect(cx, card_y, card_w, card_h)
+
+            # Card background
+            c_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            c_surf.fill((14, 26, 48, 220))
+            pygame.draw.rect(c_surf, cfg.accent_color, (0, 0, card_w, card_h), width=2, border_radius=14)
+            surface.blit(c_surf, (cx, card_y))
+
+            # Icon & Badge
+            icon_s = self.font_icon.render(cfg.badge_icon, True, COLOR_WHITE)
+            surface.blit(icon_s, (cx + 20, card_y + 16))
+
+            badge_text = f"TRIAL #{cid}"
+            b_s = self.font_badge.render(badge_text, True, cfg.accent_color)
+            surface.blit(b_s, (cx + 62, card_y + 22))
+
+            # Title
+            t_s = self.font_card_title.render(cfg.title, True, COLOR_WHITE)
+            surface.blit(t_s, (cx + 20, card_y + 56))
+
+            sub_s = self.font_card_sub.render(cfg.subtitle, True, COLOR_NEON_TEAL)
+            surface.blit(sub_s, (cx + 20, card_y + 82))
+
+            # Description wrapped
+            words = cfg.description.split(" ")
+            line = ""
+            line_y = card_y + 112
+            for w in words:
+                test_line = f"{line} {w}".strip()
+                if self.font_card_desc.size(test_line)[0] < card_w - 40:
+                    line = test_line
+                else:
+                    l_s = self.font_card_desc.render(line, True, (190, 215, 235))
+                    surface.blit(l_s, (cx + 20, line_y))
+                    line_y += 18
+                    line = w
+            if line:
+                l_s = self.font_card_desc.render(line, True, (190, 215, 235))
+                surface.blit(l_s, (cx + 20, line_y))
+
+            # Targets bar
+            tgt_text = f"Goal: {cfg.required_deposits} Relics  |  Time: {int(cfg.time_limit)}s"
+            tgt_s = self.font_badge.render(tgt_text, True, COLOR_GOLD)
+            surface.blit(tgt_s, (cx + 20, card_y + card_h - 90))
+
+            # Action Button
+            btn_rect = pygame.Rect(cx + 20, card_y + card_h - 55, card_w - 40, 40)
+            pygame.draw.rect(surface, (18, 48, 80), btn_rect, border_radius=8)
+            pygame.draw.rect(surface, cfg.accent_color, btn_rect, width=2, border_radius=8)
+            btn_lbl = self.font_badge.render("START CHALLENGE ▶", True, COLOR_WHITE)
+            surface.blit(btn_lbl, (btn_rect.centerx - btn_lbl.get_width() // 2, btn_rect.centery - btn_lbl.get_height() // 2))
+
+            # Dwell meter
+            if self.card_dwells[cid] > 0:
+                pct = min(1.0, max(0.0, self.card_dwells[cid] / 0.50))
+                bar_w = int((btn_rect.width - 8) * pct)
+                if bar_w > 0:
+                    pygame.draw.rect(surface, COLOR_GOLD, (btn_rect.left + 4, btn_rect.bottom - 4, bar_w, 3), border_radius=2)
+
+        self.back_btn.draw(surface)
+
+

@@ -70,6 +70,7 @@ def test_game_manager_full_lifecycle():
     assert gm.player.current_active_timer > 0
 
     # 7. Simulate Treasure Pickup: Automatically stored into treasure box & score
+    # 7. Simulate Treasure Grab, Carry, and Deposit into Vault
     genuine_treasures = [
         t for t in gm.current_level.treasure_manager.treasures
         if t.type not in (TreasureType.TRAP, TreasureType.FAKE) and not t.collected
@@ -88,8 +89,24 @@ def test_game_manager_full_lifecycle():
         sonar_triggered=False,
         shield_active=False
     )
-    # Treasure is automatically collected & stored in treasure box immediately!
-    assert first_treasure.collected is True
+    # Treasure is grabbed and carried
+    assert gm.player.carried_treasure is not None
+    carried = gm.player.carried_treasure
+
+    # Swimmer carries to chest vault and deposits
+    chest = gm.current_level.treasure_manager.chest
+    gm.player.x = chest.x
+    gm.player.y = chest.y
+    gm._update_gameplay(
+        dt=0.016,
+        target_x=int(chest.x),
+        target_y=int(chest.y),
+        pinch_triggered=False,
+        palm_triggered=False,
+        sonar_triggered=False,
+        shield_active=False
+    )
+    assert carried.collected is True
     assert gm.current_level.deposited_count == initial_deposited + 1
     assert gm.player.score > initial_score
 

@@ -7,7 +7,7 @@ Carried Relic Banner, and Real-Time Gesture Badge.
 
 import math
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import pygame
 
 from config import (
@@ -44,20 +44,32 @@ class HUD:
         sonar_charges: int,
         current_gesture: GestureType,
         is_shield_active: bool,
-        water_current_active: bool,
-        carried_treasure_type: Optional[str] = None
+        water_current_active: bool = False,
+        carried_treasure_type: Optional[str] = None,
+        combo_multiplier: float = 1.0,
+        is_challenge: bool = False,
+        player_pos: Tuple[float, float] = (640, 360),
+        chest_pos: Tuple[float, float] = (150, 640),
+        exploration_ratio: float = 0.0,
+        explored_grid: Optional[List[List[bool]]] = None
     ) -> None:
-        """Renders all HUD components."""
+        """Renders all HUD components including the Exploration Minimap."""
+        # Exploration Minimap (Bottom Left Corner)
+        self._draw_minimap(surface, player_pos, chest_pos, exploration_ratio, explored_grid)
+
         # Top HUD Banner Bar (Dark Translucent Glass)
         banner_h = 75
         glass_bar = pygame.Surface((SCREEN_WIDTH, banner_h), pygame.SRCALPHA)
         glass_bar.fill((8, 18, 35, 205))
-        pygame.draw.line(glass_bar, (0, 180, 216, 110), (0, banner_h - 1), (SCREEN_WIDTH, banner_h - 1), 2)
+        border_col = (245, 170, 30, 140) if is_challenge else (0, 180, 216, 110)
+        pygame.draw.line(glass_bar, border_col, (0, banner_h - 1), (SCREEN_WIDTH, banner_h - 1), 2)
         surface.blit(glass_bar, (0, 0))
 
         # 1. Level Name (Left Side)
-        lvl_text = f"LVL {level_id}: {level_name.upper()}"
-        lvl_surf = self.font_title.render(lvl_text, True, COLOR_NEON_TEAL)
+        lvl_prefix = "CHALLENGE ⚡" if is_challenge else f"LVL {level_id}"
+        lvl_text = f"{lvl_prefix}: {level_name.upper()}"
+        title_col = COLOR_AMBER_WARNING if is_challenge else COLOR_NEON_TEAL
+        lvl_surf = self.font_title.render(lvl_text, True, title_col)
         surface.blit(lvl_surf, (20, 15))
 
         # Objective Progress Badge (Below Level Title)
@@ -71,6 +83,12 @@ class HUD:
         score_val = self.font_title.render(f"{score:,}", True, COLOR_GOLD)
         surface.blit(score_label, (285, 14))
         surface.blit(score_val, (285, 34))
+
+        # Combo Streak Badge (if multiplier active)
+        if combo_multiplier > 1.0:
+            pulse = math.sin(time.time() * 8.0) * 3.0
+            combo_surf = self.font_small.render(f"COMBO x{combo_multiplier:.1f}! 🔥", True, (255, 140, 30))
+            surface.blit(combo_surf, (375, 36 + int(pulse * 0.5)))
 
         # 3. Oxygen Bar (Center)
         bar_w = 230
@@ -179,3 +197,50 @@ class HUD:
         badge_text = self.font_small.render(f"{g_icon}  {g_name}", True, g_col)
         pygame.draw.rect(surface, g_col, (badge_x, badge_y, badge_w, badge_h), width=2, border_radius=8)
         surface.blit(badge_text, (badge_x + badge_w // 2 - badge_text.get_width() // 2, badge_y + 10))
+
+    def _draw_minimap(
+        self,
+        surface: pygame.Surface,
+        player_pos: Tuple[float, float],
+        chest_pos: Tuple[float, float],
+        exploration_ratio: float,
+        explored_grid: Optional[List[List[bool]]]
+    ) -> None:
+        """Renders corner sonar radar minimap showing explored terrain, diver, and vault."""
+        mw, mh = 124, 72
+        mx = 20
+        my = SCREEN_HEIGHT - mh - 20
+
+        map_surf = pygame.Surface((mw, mh), pygame.SRCALPHA)
+        map_surf.fill((6, 16, 32, 215))
+        pygame.draw.rect(map_surf, (0, 180, 216, 160), (0, 0, mw, mh), width=2, border_radius=6)
+
+        # Draw Explored cells
+        if explored_grid:
+            rows = len(explored_grid)
+            cols = len(explored_grid[0]) if rows > 0 else 0
+            cw = mw / max(1, cols)
+            ch = mh / max(1, rows)
+            for r in range(rows):
+                for c in range(cols):
+                    if explored_grid[r][c]:
+                        pygame.draw.rect(map_surf, (12, 48, 70), (int(c * cw), int(r * ch), max(1, int(cw)), max(1, int(ch))))
+
+        # Chest Marker
+        cx, cy = chest_pos
+        mcx = int((cx / SCREEN_WIDTH) * mw)
+        mcy = int((cy / SCREEN_HEIGHT) * mh)
+        pygame.draw.rect(map_surf, COLOR_GOLD, (mcx - 3, mcy - 3, 6, 6))
+
+        # Diver Marker
+        px, py = player_pos
+        mpx = int((px / SCREEN_WIDTH) * mw)
+        mpy = int((py / SCREEN_HEIGHT) * mh)
+        pygame.draw.circle(map_surf, COLOR_NEON_TEAL, (mpx, mpy), 3)
+        pygame.draw.circle(map_surf, COLOR_WHITE, (mpx, mpy), 1)
+
+        surface.blit(map_surf, (mx, my))
+
+        # Minimap Label
+        map_lbl = self.font_small.render(f"EXPLORED {int(exploration_ratio * 100)}%", True, (160, 210, 235))
+        surface.blit(map_lbl, (mx + 4, my - 16))

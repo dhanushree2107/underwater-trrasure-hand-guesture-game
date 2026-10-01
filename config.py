@@ -203,3 +203,127 @@ LEVELS: Dict[int, LevelConfig] = {
         shark_interval=16.0
     )
 }
+
+# Abyssal Challenge Expeditions Configuration
+@dataclass
+class ChallengeConfig:
+    challenge_id: int
+    title: str
+    subtitle: str
+    description: str
+    target_score: int
+    required_deposits: int
+    time_limit: float
+    shark_interval: float
+    jellyfish_count: int
+    oxygen_drain_mult: float
+    relic_oxygen_restore: float
+    badge_icon: str
+    accent_color: Tuple[int, int, int]
+    level_config: LevelConfig
+
+CHALLENGES: Dict[int, ChallengeConfig] = {
+    1: ChallengeConfig(
+        challenge_id=1,
+        title="APEX PREDATOR GAUNTLET",
+        subtitle="Shield Timing & Predator Deflection",
+        description="Prowling Great White Sharks patrol the abyss every 10 seconds! Deflect charging sharks with your Shield [✊ Fist / 'S'] while gathering 4 rare oceanic relics! Deflections award +150 bonus points!",
+        target_score=800,
+        required_deposits=4,
+        time_limit=85.0,
+        shark_interval=10.0,
+        jellyfish_count=0,
+        oxygen_drain_mult=1.0,
+        relic_oxygen_restore=0.0,
+        badge_icon="🦈",
+        accent_color=COLOR_CORAL_RED,
+        level_config=LevelConfig(
+            level_id=101,
+            name="Apex Gauntlet",
+            description="Predator Hunt Challenge",
+            target_score=800,
+            required_deposits=4,
+            time_limit=85.0,
+            common_treasures=3,
+            gold_treasures=4,
+            rare_treasures=4,
+            ancient_treasures=1,
+            fake_treasures=3,
+            traps=2,
+            ambient_color=(6, 25, 48),
+            deep_color=(2, 10, 22),
+            visibility=0.7,
+            shark_enabled=True,
+            shark_interval=10.0
+        )
+    ),
+    2: ChallengeConfig(
+        challenge_id=2,
+        title="ABYSSAL BLITZ RUSH",
+        subtitle="Rapid Speed Trial & Oxygen Combos",
+        description="Oxygen drains 2.2x faster! Every genuine relic collected instantly restores +20% oxygen and stacks combo multipliers (up to 3x)! Chain rapid pickups to survive the deep!",
+        target_score=1100,
+        required_deposits=6,
+        time_limit=55.0,
+        shark_interval=999.0,
+        jellyfish_count=2,
+        oxygen_drain_mult=2.2,
+        relic_oxygen_restore=20.0,
+        badge_icon="⏱️",
+        accent_color=COLOR_GOLD,
+        level_config=LevelConfig(
+            level_id=102,
+            name="Abyssal Blitz",
+            description="Rapid Oxygen Rush Challenge",
+            target_score=1100,
+            required_deposits=6,
+            time_limit=55.0,
+            common_treasures=6,
+            gold_treasures=5,
+            rare_treasures=3,
+            ancient_treasures=1,
+            fake_treasures=2,
+            traps=1,
+            ambient_color=(12, 45, 80),
+            deep_color=(4, 18, 40),
+            visibility=0.85,
+            shark_enabled=False,
+            shark_interval=999.0
+        )
+    ),
+    3: ChallengeConfig(
+        challenge_id=3,
+        title="ELECTRIC JELLYFISH ABYSS",
+        subtitle="Precision Navigation & Swarm Avoidance",
+        description="A bioluminescent field of 6 electric jellyfish drifts through the darkness. Touching jellyfish zaps oxygen unless safely deflected with your Forcefield Shield [✊ Fist / 'S']!",
+        target_score=1000,
+        required_deposits=5,
+        time_limit=90.0,
+        shark_interval=24.0,
+        jellyfish_count=6,
+        oxygen_drain_mult=1.1,
+        relic_oxygen_restore=5.0,
+        badge_icon="⚡",
+        accent_color=COLOR_PURPLE_MYSTIC,
+        level_config=LevelConfig(
+            level_id=103,
+            name="Jellyfish Abyss",
+            description="Electric Minefield Challenge",
+            target_score=1000,
+            required_deposits=5,
+            time_limit=90.0,
+            common_treasures=4,
+            gold_treasures=4,
+            rare_treasures=4,
+            ancient_treasures=2,
+            fake_treasures=4,
+            traps=3,
+            ambient_color=(8, 18, 52),
+            deep_color=(3, 8, 25),
+            visibility=0.6,
+            shark_enabled=True,
+            shark_interval=24.0
+        )
+    ),
+}
+

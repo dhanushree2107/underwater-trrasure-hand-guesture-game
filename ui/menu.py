@@ -16,6 +16,7 @@ from config import (
     COLOR_OCEAN_CYAN,
     COLOR_GOLD,
     COLOR_EMERALD,
+    COLOR_AMBER_WARNING,
     COLOR_WHITE,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
@@ -32,6 +33,7 @@ class MainMenu:
         self,
         on_play: Callable[[], None],
         on_level_select: Callable[[], None],
+        on_challenges: Callable[[], None],
         on_instructions: Callable[[], None],
         on_camera_check: Callable[[], None],
         on_quit: Callable[[], None],
@@ -39,6 +41,7 @@ class MainMenu:
     ):
         self.on_play = on_play
         self.on_level_select = on_level_select
+        self.on_challenges = on_challenges
         self.on_instructions = on_instructions
         self.on_camera_check = on_camera_check
         self.on_quit = on_quit
@@ -52,10 +55,10 @@ class MainMenu:
         self.marine_manager = MarineLifeManager(fish_count=10)
 
         # Interactive Menu Buttons
-        btn_w, btn_h = 280, 48
+        btn_w, btn_h = 280, 46
         cx = SCREEN_WIDTH // 2 - btn_w // 2
-        start_y = 275
-        spacing = 58
+        start_y = 250
+        spacing = 52
 
         self.play_btn = Button(
             pygame.Rect(cx, start_y, btn_w, btn_h),
@@ -73,8 +76,16 @@ class MainMenu:
             sound_manager=self.sound_manager,
             accent_color=COLOR_EMERALD
         )
-        self.instructions_btn = Button(
+        self.challenges_btn = Button(
             pygame.Rect(cx, start_y + spacing * 2, btn_w, btn_h),
+            "ABYSSAL CHALLENGES ⚡",
+            font_size=18,
+            on_click=self.on_challenges,
+            sound_manager=self.sound_manager,
+            accent_color=COLOR_AMBER_WARNING
+        )
+        self.instructions_btn = Button(
+            pygame.Rect(cx, start_y + spacing * 3, btn_w, btn_h),
             "HOW TO PLAY / GESTURES",
             font_size=18,
             on_click=self.on_instructions,
@@ -82,7 +93,7 @@ class MainMenu:
             accent_color=COLOR_NEON_TEAL
         )
         self.camera_btn = Button(
-            pygame.Rect(cx, start_y + spacing * 3, btn_w, btn_h),
+            pygame.Rect(cx, start_y + spacing * 4, btn_w, btn_h),
             "CAMERA & VISION CHECK",
             font_size=18,
             on_click=self.on_camera_check,
@@ -90,7 +101,7 @@ class MainMenu:
             accent_color=COLOR_OCEAN_CYAN
         )
         self.quit_btn = Button(
-            pygame.Rect(cx, start_y + spacing * 4, btn_w, btn_h),
+            pygame.Rect(cx, start_y + spacing * 5, btn_w, btn_h),
             "QUIT EXPEDITION",
             font_size=18,
             on_click=self.on_quit,
@@ -101,6 +112,7 @@ class MainMenu:
         self.buttons = [
             self.play_btn,
             self.level_select_btn,
+            self.challenges_btn,
             self.instructions_btn,
             self.camera_btn,
             self.quit_btn

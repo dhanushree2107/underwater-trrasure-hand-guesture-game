@@ -5,33 +5,36 @@
 [![Pygame 2.6](https://img.shields.io/badge/Pygame-2.6-green.svg)](https://www.pygame.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10.14-orange.svg)](https://developers.google.com/mediapipe)
 [![OpenCV](https://img.shields.io/badge/OpenCV-5.0-red.svg)](https://opencv.org/)
-[![Tests](https://img.shields.io/badge/Tests-24%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-35%20Passed-brightgreen.svg)]()
 
 ---
 
 ## 📖 1. Project Overview & Core Concept
 
-**Underwater Treasure Hunt** is a commercial-grade, vision-controlled interactive desktop application built in Python. 
+**Underwater Treasure Hunt** is a commercial-grade, vision-controlled interactive desktop adventure built in Python. 
 
-### 🤿 "The User's Hand Controls The Underwater Swimmer"
-The core paradigm of the game is **physical swimmer control**:
-* **The hand does not simply behave like a mouse cursor.**
-* The user's hand controls an actual **underwater scuba explorer character ("the man")**.
-* When the user moves their hand left, right, up, or down, the scuba diver dynamically banks, flutters twin swimming fins, tilts with fluid pitch rotation, illuminates the deep with a volumetric flashlight beam, and discharges air regulator bubbles into the water.
-* **Rock-Steady Hand Persistence**: MediaPipe tracking incorporates a 550ms persistence buffer so that momentary camera frame drops never cause the swimmer to jerk or snap back to the mouse.
-* **Ultra-Agile Tracking**: Swimmer accelerates smoothly to full speed in ~25ms with distance-scaled sprint catching up to rapid hand gestures.
+### 🤿 "The User's Hand Controls Both The Swimmer & The Underwater Cursor"
+The core paradigm of the game is **physical underwater embodiment**:
+* **The hand is NOT just a mouse replacement**: It controls both the physical scuba explorer navigation AND a permanent, custom glowing underwater hand cursor.
+* **Always-Visible Underwater Hand Cursor**: The game renders a bespoke, illuminated underwater hand cursor with dynamic glowing halos, targeting crosshairs, and a bubble particle trail. The OS mouse is completely hidden.
+* **Contextual Cursor States**: The cursor dynamically shifts appearance based on target:
+  - 💠 **NORMAL**: Glowing cyan/blue underwater cursor.
+  - 👑 **TREASURE TARGET**: Glowing gold cursor when hovering over relics or mystery crates.
+  - ⚠️ **DANGER**: Crimson red warning cursor when targeting mines, counterfeits, or predators.
+  - 🤏 **PINCH / GRAB**: Cursor contracts with a vibrant grab halo.
+  - ✌️ **SONAR / ✋ CURRENT / ✊ SHIELD**: Custom kinetic pulses matching active gestures.
+  - ⚠️ **HAND NOT DETECTED**: Floating warning banner when the hand leaves camera view, safely slowing the swimmer.
+* **Natural Swimmer Kinematics**: Moving your hand left, right, up, or down guides the scuba diver, who dynamically banks, flutters twin swimming fins, tilts with fluid pitch rotation, illuminates the deep with a volumetric flashlight beam, and discharges air regulator bubbles.
 
-### 💎 Automatic Treasure Box Collection Loop
+### 💎 Tactile Grab, Carry & Deposit Loop
 1. **Explore & Navigate**: Steer the underwater explorer toward ancient relics.
-2. **Point / Tap / Pinch (👉 / 👆 / 🤏)**:
-   - **Hover Dwell Auto-Click**: Steadily pointing the cursor at any button or genuine relic automatically clicks / collects it!
-   - **Index Tap / Pinch**: Tap your index finger down or pinch near a treasure to collect instantly (0s delay)!
-   - **Direct Touch**: Swimmer swimming directly through a genuine relic collects it immediately!
-3. **Automatic Vault Storage**: The relic is instantly stored into your treasure collection box:
-   - Score is awarded immediately!
-   - Celebration particles burst and cascade toward the seafloor collection vault!
-   - The Level Objective counter increments automatically (`OBJECTIVE: X / Y STORED 🎁`).
-   - Deceptive counterfeits trigger an oxygen penalty; naval mines detonate on contact.
+2. **Aim & Pinch (🤏)**: Move the visible hand cursor over the relic and pinch your thumb and index finger together to **GRAB** the treasure!
+3. **Carry**: The treasure visibly attaches to the swimmer's hands and follows as you swim through obstacles, currents, and predators.
+4. **Deposit**: Swim to the seafloor Treasure Chest Vault and release your pinch to securely deposit the treasure:
+   - Score is credited immediately with celebration burst particles!
+   - The Combo Multiplier advances (`🔥 COMBO x2`, `x3`, etc.)!
+   - Objective counter updates (`OBJECTIVE: X / Y STORED 🎁`).
+   - If pinch is released outside the chest vault, the relic safely drops back to the seabed.
 
 ```
        [Webcam Feed @ 30 FPS]
@@ -70,57 +73,105 @@ Traditional interactive gaming relies on physical peripherals (mice, keyboards, 
 
 ## 🖐️ 3. Hand Gesture Controls & Mapping
 
-| Gesture | Real-World Action | Game Action & Mechanic | Secondary Fallback |
+The entire game (gameplay and all UI menus) is **100% controlled via webcam hand tracking**. The system OS mouse is completely hidden.
+
+| Gesture | Real-World Action | Game Action & In-Game Mechanic | Menu Selection Mechanic |
 | :--- | :--- | :--- | :--- |
-| 🖐 **Hand Movement** | Move hand in front of camera | **Steers Swimmer**: Swimmer swims naturally left, right, up, down | Mouse Movement |
-| 🤏 **Pinch** | Thumb & index tips close together | **Grab / Deposit**: Grab relic near hands; release inside Treasure Chest to deposit | Left Mouse Click |
-| ✋ **Open Palm** | Spread all 5 fingers open | **Water Current**: Unleashes water current pushing loose items & fish | Spacebar |
-| ✌️ **Two Fingers** | Raise Index + Middle fingers | **Sonar Pulse**: Emits expanding wave revealing hidden fakes & traps | Right Mouse Click |
-| ✊ **Fist** | Curl all fingers tightly into palm | **Energy Shield**: Deploys forcefield protecting diver from sharks | Hold **'S'** Key |
+| 🖐 **Hand Movement** | Move hand in front of camera | **Steers Swimmer & Moves Hand Cursor**: Swimmer swims naturally left, right, up, down; glowing underwater cursor tracks hand | **Moves Cursor**: Moves illuminated hand cursor over buttons |
+| 🤏 **Pinch** | Thumb & index tips close together | **Tactile Grab / Deposit**: Grab relic near cursor/hands; release inside Seafloor Vault to deposit; open mystery crates | **Click / Select**: Activates hovered button with glassmorphic press animation |
+| ✋ **Open Palm** | Spread all 5 fingers open | **Water Current Burst**: Unleashes surging current pushing loose items, fish, and solving ancient puzzle step | Clears selection / navigates back |
+| ✌️ **Two Fingers** | Raise Index + Middle fingers | **Sonar Recon Pulse**: Emits expanding circular wave revealing hidden relics, traps, and solving puzzle step | Quick preview |
+| ✊ **Fist** | Curl all fingers tightly into palm | **Energy Shield**: Deploys forcefield dome protecting diver from sharks and jellyfish electric shocks | Pause / Cancel |
 
 ---
 
-## 🗺️ 4. The 5 Oceanic Levels & Objectives
+## 🎯 4. Underwater Hand Cursor (`ui/cursor.py`)
 
-The game features an interactive **Level Select Screen** (`EXPEDITION ZONES 🗺️`) where players can view objectives, locked/unlocked statuses, and completion badges.
+A bespoke, permanently visible underwater cursor renders atop all scenes:
+* **Dual Glowing Halos**: Cyan bioluminescent halo with trailing hydrodynamic bubble particles.
+* **Contextual State Switching**:
+  - `NORMAL`: Ambient cyan halo with subtle crosshair ring.
+  - `TREASURE_TARGET`: Gilded gold aura when hovering over relics or mystery crates.
+  - `DANGER`: Flashing crimson warning aura when hovering near mines, mimic fakes, or sharks.
+  - `PINCH`: Contracted glowing grab ring confirming tactile hold.
+  - `SONAR / CURRENT / SHIELD`: Dynamic pulsing waveforms.
+* **Hand Loss Safety**: If hand tracking is momentarily lost, a prominent floating `"HAND NOT DETECTED"` warning appears, safely damping swimmer velocity to avoid collision drift.
 
-| Level | Name | Theme & Environment | Objective & Challenges | Required Deposits |
+---
+
+## 🗺️ 5. The 5 Oceanic Levels & Exploration System
+
+The game features an interactive **Level Select Screen** (`EXPEDITION ZONES 🗺️`) where players navigate with their hand cursor, viewing objectives, locked/unlocked statuses, and completion stars.
+
+| Level | Name | Theme & Environment | Unique Mechanics & Hazards | Objective |
 | :---: | :--- | :--- | :--- | :---: |
-| **1** | **Shallow Sea** | Crystal sunlit turquoise waters | Basic swimming & relic carrying; no shark threat | **3 Relics** |
-| **2** | **Coral Reef** | Vibrant corals, schools of tropical fish | Deceptive fake treasures appear; water currents | **5 Relics** |
-| **3** | **Deep Ocean** | Abyssal darkness, bioluminescent flora | Low visibility; Sonar is essential to detect sea mines | **5 Relics** |
-| **4** | **Lost Ship** | Murky sunken galleon hull & tilted masts | Spiked naval mines and roaming Apex Shark hazards | **7 Relics** |
-| **5** | **Ancient Ruins** | Sunken Poseidon temple & ancient pillars | Strong currents, apex sharks, mythic Ancient Crown | **1 Ancient Crown** |
+| **1** | **Shallow Sea** | Crystal sunlit turquoise waters | Basic swimming, relic carrying, air bubble station; no major threats | **3 Relics** |
+| **2** | **Coral Reef** | Vibrant corals, schools of tropical fish | Coral maze, water currents, mystery crates, mimic counterfeits | **5 Relics** |
+| **3** | **Deep Ocean** | Abyssal pitch darkness, bioluminescence | Circular flashlight beam, Sonar reconnaissance, electric jellyfish swarms, naval mines | **5 Relics** |
+| **4** | **Lost Ship** | Murky sunken galleon hull & tilted masts | Apex Shark chases, octopus tentacle ambush, random swirling whirlpools, tight corridors | **7 Relics** |
+| **5** | **Ancient Ruins** | Sunken Poseidon temple & ancient pillars | Flashlight darkness, apex sharks, whirlpools, Atlantean Gesture Puzzle, Mythic Crown | **Mythic Crown** |
+
+### 🧭 Exploration Fog of War & Seabed Minimap
+* **32x18 Seabed Grid**: Areas are initially shrouded in uncharted deep sea fog.
+* **Exploration Tracking**: Swimming through coordinates illuminates tiles and tracks your exploration percentage.
+* **Corner Radar Minimap**: Displayed in the bottom-left HUD, rendering explored terrain contours, real-time player position, and the seafloor treasure vault depot.
+* **Deep Sea Flashlight Beam**: Levels 3, 4, and 5 immerse the player in dark waters where only a focused circular spotlight around the diver pierces the gloom, making Sonar reconnaissance vital!
 
 ---
 
-## 💎 5. Treasure, Fake, & Trap Mechanics
+## ⚡ 5.1 Abyssal Challenge Trials (Dedicated Mode)
 
+Accessible directly from the Main Menu (`ABYSSAL CHALLENGES ⚡`), this mode tests mastery of gesture timing and deep-sea survival across three unique gauntlets:
+
+| Trial | Name | Badge | Objective & Modifiers | Win Condition |
+| :---: | :--- | :---: | :--- | :---: |
+| **#1** | **Apex Predator Gauntlet** | 🦈 GAUNTLET | Relentless Great White sharks charge diver every **10s**. Holding **Fist (✊) / 'S'** deflects charges and awards **+150 DEFLECTION BONUS**! | Retrieve **4 Relics** |
+| **#2** | **Abyssal Blitz Rush** | ⏱️ SPEEDRUN | Rapid oxygen depletion (**2.2x speed**, 55s limit). Depositing genuine relics restores **+20% Oxygen** to keep diver alive! | Store **5 Relics** |
+| **#3** | **Electric Jellyfish Abyss** | ⚡ MINEFIELD | **6 Pulsating Bioluminescent Jellyfish** drift through the dark. Diver must maneuver smoothly or deploy Shield to deflect electric shocks! | Secure **4 Relics** |
+
+---
+
+## 💎 6. Relics, Hazards & Dynamic Adventure Systems
+
+### 📦 Relic Economy & Mystery Crates
 * **Common Relic**: +50 Score (Natural sea pearl in clam)
 * **Gold Treasure**: +100 Score (Gilded sea chest)
 * **Rare Artifact**: +250 Score (Bioluminescent sapphire chalice)
 * **Ancient Crown**: +500 Score (Mythic Sunken Crown of Atlantis)
-* **Deceptive Fake**: **-50 Score Penalty & -12% Oxygen Loss** (Disguised mimic chest revealed by yellow sonar ring)
-* **Explosive Sea Mine Trap**: **-25% Oxygen Loss & Screen Shake** (Spiked iron naval mine detonating upon contact)
+* **Mystery Crates**: Sunken cargo crates marked with glowing `?`. Pinching the crate cracks it open to reveal random rewards:
+  - 🫧 **Oxygen Tank**: +30% Oxygen restore
+  - 📡 **Sonar Cell**: +2 Sonar charges
+  - 💰 **Gold Ingot**: +150 to +300 bonus score
+  - 👑 **Rare Relic**: High-value artifact
+  - ⚠️ **Naval Trap**: Disguised explosive penalty!
+* **Deceptive Fake**: **-50 Score & -12% Oxygen** (Mimic chest revealed by yellow sonar ring)
+* **Naval Sea Mine**: **-25% Oxygen & Screen Shake** (Spiked iron mine detonating on contact)
 
-### 📡 Sonar Wave Mechanic (✌️)
-Raising two fingers emits an expanding concentric sonar wave:
-* **Emerald Green Ring**: Verified genuine treasure.
-* **Amber Yellow Ring**: Deceptive counterfeit.
-* **Crimson Red Pulse**: Explosive sea mine trap.
-* Limited to **3 charges** per level.
+### 🫧 Air Bubble Stations
+Geothermal ocean vents emitting continuous streams of air bubbles. Swimming close restores **+25% Oxygen** with a circular cooldown ring recharging every 12 seconds.
 
-### 💨 Water Current Burst (✋)
-Opening your palm releases a rushing torrent of water bubbles across the sea, displacing fish schools and shifting uncollected relics.
+### 🌀 Dynamic Whirlpools
+Violent ocean vortexes pulling the diver inward with fluid suction forces. Actively swimming against the vortex breaks the gravitational pull, earning a **"ESCAPED WHIRLPOOL! 🌀 +50"** bonus!
 
-### 🦈 Apex Predator & Shield Mechanic (✊)
-In Levels 4 & 5, apex predator sharks patrol the area:
-* If the diver holds **Fist (✊)** or the **'S'** key, the **Energy Shield Dome** deflects the shark with an energy burst!
-* If unshielded, the shark bite deals a devastating **-35% oxygen penalty**.
+### 🐙 Octopus Ambush (Level 4)
+Giant deep-sea cephalopod extending segmented undulating tentacles across the shipwreck corridors. Touching a tentacle deals **-12% Oxygen shock**.
+
+### 🏛️ Ancient Atlantean Gesture Puzzle (Level 5)
+A glowing stone pedestal in the Sunken Ruins requiring a mystical three-gesture invocation sequence:
+$$\text{✌️ (Sonar Scan)} \longrightarrow \text{✋ (Current Burst)} \longrightarrow \text{🤏 (Pinch Touch)}$$
+Executing the correct sequence illuminates ancient Atlantean glyphs, unlocking the secret chamber containing the **Ancient Crown (+500 points)**!
+
+### 🔥 Relic Combo Multiplier Streak
+Depositing genuine relics in sequence without taking damage builds a thrilling score multiplier:
+* **Streak 1**: `1.0x` Multiplier
+* **Streak 2**: `1.5x` Multiplier (+50% bonus points)
+* **Streak 3**: `2.0x` Multiplier (Double points)
+* **Streak 4+**: `3.0x` Multiplier (Triple points!)
+* Taking damage from sharks, jellyfish, sea mines, or counterfeit mimics resets the combo back to `1.0x`.
 
 ---
 
-## 📁 6. Project Architecture
+## 📁 7. Project Architecture
 
 ```
 underwater_treasure_hunt/
@@ -140,17 +191,18 @@ underwater_treasure_hunt/
 │   ├── __init__.py
 │   ├── game_manager.py      # Master game loop & state coordinator
 │   ├── player.py            # Animated scuba diver swimmer character & vitals
-│   ├── treasure.py          # Relics, seafloor Treasure Chest Depot, fakes, traps
-│   ├── enemy.py             # Swimming fish schools and apex predator sharks
-│   ├── level.py             # 5 Level environments, seabed silhouettes, & fog
+│   ├── treasure.py          # Relics, Crates, Air Stations, Vault Depot
+│   ├── enemy.py             # Fish schools, Apex Sharks, Whirlpools, Octopus
+│   ├── level.py             # 5 Levels, Minimap, Exploration Fog, Ancient Puzzles
 │   ├── collision.py         # Geometric collision primitives
 │   └── particles.py         # Bubbles, god rays, sparkles, and score popups
 │
 ├── ui/                      # User Interface & Navigation
 │   ├── __init__.py
+│   ├── cursor.py            # Always-visible glowing underwater hand cursor
 │   ├── buttons.py           # Animated glassmorphism interactive buttons
-│   ├── hud.py               # Heads-up display with smooth oxygen & objective bar
-│   ├── menu.py              # Animated main menu with interactive options
+│   ├── hud.py               # Heads-up display with minimap & oxygen meter
+│   ├── menu.py              # Animated main menu with hand cursor interaction
 │   ├── instructions.py      # Illustrated gesture tutorial
 │   └── screens.py           # Level Select, Camera Check, Pause, Win/Loss screens
 │
@@ -158,33 +210,19 @@ underwater_treasure_hunt/
 │   ├── __init__.py
 │   └── sound_manager.py     # Procedural 44.1kHz audio synthesizer & mixer
 │
-└── tests/                   # Automated Pytest Suite (22 Tests)
-    ├── test_collision.py    # Collision detection tests
-    ├── test_gestures.py     # Gesture state machine tests
-    ├── test_game_logic.py   # Swimmer kinematics, grab/release, oxygen tests
-    ├── test_levels.py       # Level generation and deposit objective tests
-    └── test_engine_run.py   # Full engine lifecycle & Level Select integration tests
+└── tests/                   # Automated Pytest Suite (35 Tests)
+    ├── test_adventure_systems.py # Crates, air stations, whirlpools, octopus, puzzles
+    ├── test_challenges.py        # Challenge trials, jellyfish, combo streaks
+    ├── test_collision.py         # Geometric collision primitives
+    ├── test_engine_run.py        # Full engine lifecycle & state machine
+    ├── test_game_logic.py        # Swimmer kinematics, grab/release, oxygen
+    ├── test_gestures.py          # Gesture state machine & debouncing
+    └── test_levels.py            # Level generation & deposit objectives
 ```
 
 ---
 
-## 🌐 7. Play in Browser & Deploy on Render (Static Site)
-
-The repository includes a production-ready **HTML5 + Web Audio + Google MediaPipe Hands** in-browser version that can be played with zero installation or hosted on **Render as a Static Site**:
-
-### Instant 1-Click Hosting on Render:
-1. Go to your [Render Dashboard](https://dashboard.render.com/) and click **New +** ➔ **Static Site**.
-2. Connect your GitHub repository: `dhanushree2107/underwater-trrasure-hand-guesture-game`.
-3. Configure the deployment settings:
-   * **Name**: `underwater-treasure-hunt`
-   * **Branch**: `main`
-   * **Build Command**: *(leave empty)*
-   * **Publish Directory**: `./` (or `.`)
-4. Click **Create Static Site**! Render will deploy it instantly to a free `https://<name>.onrender.com` URL.
-
----
-
-## 🚀 8. Desktop Installation & Quick Start
+## 🚀 8. Installation & Quick Start
 
 ### Prerequisites
 * Windows 10/11, macOS, or Linux
@@ -198,24 +236,23 @@ cd "c:\project 1\underwater trrasure hand guesture game"
 
 ### 2. Install Dependencies
 ```powershell
-python -m pip install -r requirements.txt
+py -3.12 -m pip install -r requirements.txt
 ```
 
 ### 3. Launch the Application
 ```powershell
-python main.py
+py -3.12 main.py
 ```
-*(Or simply `py main.py`)*
 
 ---
 
-## 🧪 8. Automated Testing
+## 🧪 9. Automated Testing
 
-The project includes **24 comprehensive unit and integration tests** verifying all systems.
+The project includes **35 comprehensive unit and integration tests** verifying all systems.
 
 Run the test suite:
 ```powershell
-python -m pytest
+py -3.12 -m pytest
 ```
 
 Expected output:
@@ -223,15 +260,17 @@ Expected output:
 ============================= test session starts =============================
 platform win32 -- Python 3.12.10, pytest-9.1.1
 rootdir: C:\project 1\underwater trrasure hand guesture game
-collected 22 items
+collected 35 items
 
-tests\test_collision.py ....                                             [ 18%]
-tests\test_engine_run.py .                                               [ 22%]
-tests\test_game_logic.py .......                                         [ 54%]
-tests\test_gestures.py .....                                             [ 77%]
+tests\test_adventure_systems.py .......                                  [ 20%]
+tests\test_challenges.py ....                                            [ 31%]
+tests\test_collision.py ....                                             [ 42%]
+tests\test_engine_run.py .                                               [ 45%]
+tests\test_game_logic.py .......                                         [ 65%]
+tests\test_gestures.py .......                                           [ 85%]
 tests\test_levels.py .....                                               [100%]
 
-============================== 22 passed in 6.87s ==============================
+======================= 35 passed, 6 warnings in 10.00s =======================
 ```
 
 ---

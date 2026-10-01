@@ -21,10 +21,73 @@ from config import (
     COLOR_GOLD,
     COLOR_WHITE,
 )
+from hand_tracking.gesture_detector import GestureType
 from game.treasure import TreasureManager
 from game.enemy import MarineLifeManager
 from game.particles import ParticleSystem
 from game.player import Player
+from game.collision import distance
+
+class AncientGesturePuzzle:
+    """An ancient Atlantean stone pedestal in Level 5 requiring a gesture sequence to unlock."""
+    def __init__(self, x: float = SCREEN_WIDTH - 240.0, y: float = SCREEN_HEIGHT - 130.0):
+        self.x = x
+        self.y = y
+        self.radius = 70.0
+        self.solved = False
+        self.sequence = [GestureType.TWO_FINGERS, GestureType.OPEN_PALM, GestureType.PINCH]
+        self.labels = ["SONAR ✌️", "CURRENT ✋", "PINCH 🤏"]
+        self.current_step = 0
+        self.pulse_phase = 0.0
+
+    def check_gesture(self, gesture: GestureType, px: float, py: float) -> Tuple[bool, bool]:
+        """
+        Checks if player performed the next gesture in the sequence near the pedestal.
+        Returns (solved_just_now, step_advanced).
+        """
+        if self.solved:
+            return False, False
+        if distance(px, py, self.x, self.y) <= (self.radius + 60.0):
+            if gesture == self.sequence[self.current_step]:
+                self.current_step += 1
+                if self.current_step >= len(self.sequence):
+                    self.solved = True
+                    return True, True
+                return False, True
+        return False, False
+
+    def draw(self, surface: pygame.Surface) -> None:
+        cx, cy = int(self.x), int(self.y)
+        self.pulse_phase += 0.05
+        # Pedestal base
+        pygame.draw.rect(surface, (40, 55, 75), (cx - 45, cy - 25, 90, 50), border_radius=6)
+        pygame.draw.rect(surface, (20, 35, 50), (cx - 45, cy - 25, 90, 50), width=2, border_radius=6)
+        
+        # Glow ring
+        pulse = math.sin(self.pulse_phase)
+        col = COLOR_GOLD if self.solved else COLOR_NEON_TEAL
+        pygame.draw.circle(surface, col, (cx, cy - 15), 18, 2)
+
+        # Draw glyph tablets
+        font = pygame.font.SysFont("segoeui", 11, bold=True)
+        for i, lbl in enumerate(self.labels):
+            gx = cx - 75 + i * 52
+            gy = cy - 65
+            is_done = (i < self.current_step)
+            is_active = (i == self.current_step and not self.solved)
+            
+            box_col = COLOR_GOLD if is_done else (COLOR_NEON_TEAL if is_active else (50, 70, 90))
+            pygame.draw.rect(surface, (15, 25, 40), (gx, gy, 48, 24), border_radius=4)
+            pygame.draw.rect(surface, box_col, (gx, gy, 48, 24), width=1, border_radius=4)
+            
+            txt_surf = font.render(lbl, True, box_col)
+            surface.blit(txt_surf, (gx + 24 - txt_surf.get_width() // 2, gy + 4))
+
+        title_font = pygame.font.SysFont("segoeui", 12, bold=True)
+        t_str = "VAULT UNLOCKED! 🏆" if self.solved else "ANCIENT PUZZLE"
+        t_surf = title_font.render(t_str, True, COLOR_GOLD if self.solved else COLOR_WHITE)
+        surface.blit(t_surf, (cx - t_surf.get_width() // 2, cy + 30))
+
 
 class Seaweed:
     """Animated swaying kelp frond anchored to sea floor."""
@@ -63,6 +126,12 @@ class Level:
         self.deposited_count: int = 0
         self.required_deposits: int = self.config.required_deposits
 
+        # Exploration Grid (32 cols x 18 rows = 40x40px tiles)
+        self.explored_grid: List[List[bool]] = [[False for _ in range(32)] for _ in range(18)]
+
+        # Ancient Puzzle (Level 5)
+        self.puzzle: Optional[AncientGesturePuzzle] = AncientGesturePuzzle() if level_id == 5 else None
+
         # Managers
         self.treasure_manager = TreasureManager()
         self.marine_manager = MarineLifeManager(fish_count=12 + level_id * 2)
@@ -83,6 +152,10 @@ class Level:
             screen_h=SCREEN_HEIGHT
         )
 
+        # Spawn bioluminescent electric jellyfish in deeper zones
+        if level_id in (3, 5):
+            self.marine_manager.spawn_jellyfish(3)
+
     def _init_scenery(self) -> None:
         """Constructs coral beds and kelp forest based on level depth."""
         kelp_colors = [
@@ -98,13 +171,30 @@ class Level:
             col = random.choice(kelp_colors)
             self.seaweeds.append(Seaweed(kx, kh, col))
 
-    def update(self, dt: float, current_active: bool, cursor_pos: Tuple[int, int], shield_active: bool) -> Tuple[bool, bool, bool, bool]:
+    def get_exploration_ratio(self) -> float:
+        """Returns the percentage of the seabed map that has been explored."""
+        tot = 32 * 18
+        vis = sum(sum(1 for cell in row if cell) for row in self.explored_grid)
+        return vis / tot
+
+    def update(self, dt: float, current_active: bool, cursor_pos: Tuple[int, int], shield_active: bool) -> Tuple[bool, bool, bool, bool, bool, bool]:
         """
-        Updates level timers, marine life, and hazards.
+        Updates level timers, marine life, exploration fog, and hazards.
         Returns:
-            (is_level_complete, is_game_over, player_damaged_by_shark, shark_deflected)
+            (is_level_complete, is_game_over, shark_hit, shark_deflected, jelly_hit, jelly_deflected)
         """
         self.time_remaining = max(0.0, self.time_remaining - dt)
+        cx, cy = cursor_pos
+
+        # Update Exploration Fog Grid
+        c_tile = int(cx // 40)
+        r_tile = int(cy // 40)
+        for dr in range(-3, 4):
+            for dc in range(-3, 4):
+                rr = r_tile + dr
+                cc = c_tile + dc
+                if 0 <= rr < 18 and 0 <= cc < 32:
+                    self.explored_grid[rr][cc] = True
         
         # Update Treasures & Collection Chest Depot
         self.treasure_manager.update(dt, current_active, player_pos=cursor_pos)
@@ -118,15 +208,15 @@ class Level:
             shark_interval=self.config.shark_interval
         )
 
-        # Check Shark Collision
-        cx, cy = cursor_pos
+        # Check Shark & Jellyfish Collision
         shark_hit, shark_deflected = self.marine_manager.check_shark_interaction(cx, cy, shield_active)
+        jelly_hit, jelly_deflected = self.marine_manager.check_jellyfish_interaction(cx, cy, shield_active)
 
         # Check Win/Loss conditions based on deposited relics objective
         is_level_complete = (self.deposited_count >= self.required_deposits)
         is_game_over = (self.time_remaining <= 0)
 
-        return is_level_complete, is_game_over, shark_hit, shark_deflected
+        return is_level_complete, is_game_over, shark_hit, shark_deflected, jelly_hit, jelly_deflected
 
     def draw_background(self, surface: pygame.Surface, current_active: bool = False) -> None:
         """Renders realistic multi-depth underwater gradient, parallax seabed, and scenery."""
@@ -135,7 +225,6 @@ class Level:
         bot_col = self.config.deep_color
         grad_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         
-        # 3-step vertical interpolation for smooth performance
         for y in range(0, SCREEN_HEIGHT, 4):
             t = y / SCREEN_HEIGHT
             r = int(top_col[0] + (bot_col[0] - top_col[0]) * t)
@@ -146,10 +235,9 @@ class Level:
 
         # 2. Level-Specific Thematic Scenery Backdrop
         if self.level_id == 4:
-            # Level 4: Sunken Shipwreck Silhouette
+            # Sunken Shipwreck Silhouette
             ship_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             hull_col = (12, 22, 34, 180)
-            # Sunken hull
             hull_poly = [
                 (140, SCREEN_HEIGHT),
                 (160, SCREEN_HEIGHT - 180),
@@ -158,22 +246,18 @@ class Level:
                 (620, SCREEN_HEIGHT),
             ]
             pygame.draw.polygon(ship_surf, hull_col, hull_poly)
-            # Tilted Mast & Yardarms
             pygame.draw.line(ship_surf, hull_col, (340, SCREEN_HEIGHT - 150), (320, SCREEN_HEIGHT - 380), 12)
             pygame.draw.line(ship_surf, hull_col, (260, SCREEN_HEIGHT - 310), (380, SCREEN_HEIGHT - 325), 6)
             surface.blit(ship_surf, (0, 0))
 
         elif self.level_id == 5:
-            # Level 5: Sunken Ancient Temple of Atlantis
+            # Sunken Ancient Temple of Atlantis
             temple_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             pillar_col = (20, 32, 50, 190)
-            # Ancient Pillars
             for px in (120, 240, SCREEN_WIDTH - 240, SCREEN_WIDTH - 120):
                 pygame.draw.rect(temple_surf, pillar_col, (px, SCREEN_HEIGHT - 260, 48, 260))
-                # Capital & Base
                 pygame.draw.rect(temple_surf, pillar_col, (px - 10, SCREEN_HEIGHT - 275, 68, 16))
                 pygame.draw.rect(temple_surf, pillar_col, (px - 6, SCREEN_HEIGHT - 20, 60, 20))
-            # Ruined architrave
             pygame.draw.polygon(temple_surf, pillar_col, [
                 (90, SCREEN_HEIGHT - 275),
                 (280, SCREEN_HEIGHT - 275),
@@ -181,6 +265,10 @@ class Level:
                 (110, SCREEN_HEIGHT - 310),
             ])
             surface.blit(temple_surf, (0, 0))
+
+            # Draw Ancient Gesture Puzzle Pedestal if present
+            if self.puzzle:
+                self.puzzle.draw(surface)
 
         # 3. Parallax Sandy Sea Floor
         seafloor_col = (int(bot_col[0] * 1.5 + 8), int(bot_col[1] * 1.5 + 14), int(bot_col[2] * 1.5 + 20))
@@ -195,10 +283,19 @@ class Level:
         for sw in self.seaweeds:
             sw.draw(surface, current_active)
 
-    def draw_fog(self, surface: pygame.Surface) -> None:
-        """Draws depth fog and ambient darkness overlay for deep water levels."""
+    def draw_fog(self, surface: pygame.Surface, player_pos: Tuple[float, float] = (640, 360), sonar_active: bool = False) -> None:
+        """Draws dynamic depth fog with a circular diver flashlight beam in dark abyss levels."""
         if self.config.visibility < 0.95:
             fog_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            fog_alpha = int(255 * (1.0 - self.config.visibility))
-            fog_surf.fill((*self.config.deep_color[:3], max(0, min(230, fog_alpha))))
+            fog_alpha = 40 if sonar_active else int(240 * (1.0 - self.config.visibility))
+            fog_surf.fill((*self.config.deep_color[:3], max(0, min(235, fog_alpha))))
+
+            # Flashlight illumination cutout around the player
+            if not sonar_active and player_pos:
+                px, py = int(player_pos[0]), int(player_pos[1])
+                light_radius = 230
+                pygame.draw.circle(fog_surf, (0, 0, 0, 0), (px, py), light_radius)
+                # Soft luminous light falloff ring
+                pygame.draw.circle(fog_surf, (*COLOR_OCEAN_CYAN[:3], 35), (px, py), light_radius + 15, 8)
+
             surface.blit(fog_surf, (0, 0))

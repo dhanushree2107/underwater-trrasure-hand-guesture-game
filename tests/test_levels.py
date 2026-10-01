@@ -38,7 +38,7 @@ def test_level_completion_condition():
     lvl = Level(1)
     # Level is not complete before meeting deposit requirement
     assert lvl.deposited_count < lvl.required_deposits
-    is_complete, _, _, _ = lvl.update(
+    is_complete, is_over, *rest = lvl.update(
         dt=0.1,
         current_active=False,
         cursor_pos=(640, 360),
@@ -48,7 +48,7 @@ def test_level_completion_condition():
 
     # Once required deposits are placed into chest vault, level completes
     lvl.deposited_count = lvl.required_deposits
-    is_complete, is_over, _, _ = lvl.update(
+    is_complete, is_over, *rest = lvl.update(
         dt=0.1,
         current_active=False,
         cursor_pos=(640, 360),
@@ -60,7 +60,7 @@ def test_level_completion_condition():
 def test_level_timeout_game_over():
     lvl = Level(1)
     lvl.time_remaining = 0.05
-    is_complete, is_over, _, _ = lvl.update(
+    is_complete, is_over, *rest = lvl.update(
         dt=0.1,
         current_active=False,
         cursor_pos=(640, 360),

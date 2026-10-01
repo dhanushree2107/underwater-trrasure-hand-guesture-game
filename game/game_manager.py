@@ -18,6 +18,8 @@ from config import (
     FULLSCREEN,
     TITLE,
     LEVELS,
+    CHALLENGES,
+    PASSIVE_OXYGEN_DEPLETION_RATE,
     COLOR_OCEAN_CYAN,
     COLOR_NEON_TEAL,
     COLOR_GOLD,
@@ -36,6 +38,7 @@ from game.treasure import TreasureType
 from ui.hud import HUD
 from ui.menu import MainMenu
 from ui.instructions import HowToPlayScreen
+from ui.cursor import HandCursor, CursorTargetState
 from ui.screens import (
     CameraCheckScreen,
     PauseScreen,
@@ -43,11 +46,13 @@ from ui.screens import (
     GameOverScreen,
     VictoryScreen,
     LevelSelectScreen,
+    ChallengeScreen,
 )
 
 class GameState(Enum):
     MAIN_MENU = "MAIN_MENU"
     LEVEL_SELECT = "LEVEL_SELECT"
+    CHALLENGES = "CHALLENGES"
     HOW_TO_PLAY = "HOW_TO_PLAY"
     CAMERA_CHECK = "CAMERA_CHECK"
     PLAYING = "PLAYING"
@@ -63,8 +68,8 @@ class GameManager:
         pygame.init()
         pygame.display.set_caption(TITLE)
         
-        # Ensure mouse cursor is visible at all times
-        pygame.mouse.set_visible(True)
+        # Hide standard desktop OS cursor in favor of custom vision hand cursor
+        pygame.mouse.set_visible(False)
         
         # Display setup: start in full screen with aspect-ratio auto-scaling
         self.is_fullscreen: bool = FULLSCREEN
@@ -78,12 +83,22 @@ class GameManager:
         self.clock = pygame.time.Clock()
         self.running = True
 
+        # Custom Glowing Vision Hand Cursor
+        self.hand_cursor = HandCursor()
+
         # Input & Cursor Tracking
         self.last_mouse_time: float = 0.0
         self.last_mouse_move_time: float = 0.0
         self.last_cursor_pos: Tuple[int, int] = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
         self.is_hand_detected: bool = False
         self.treasure_hover_dwell: float = 0.0
+
+        # Challenges, Combos, and Dynamic Events
+        self.active_challenge_id: Optional[int] = None
+        self.combo_count: int = 0
+        self.combo_multiplier: float = 1.0
+        self.whirlpool_timer: float = 0.0
+        self.octopus_timer: float = 0.0
 
         # Diagnostics & Options
         self.debug_mode = False
@@ -115,6 +130,7 @@ class GameManager:
         self.menu_screen = MainMenu(
             on_play=self.start_new_expedition,
             on_level_select=lambda: self.set_state(GameState.LEVEL_SELECT),
+            on_challenges=lambda: self.set_state(GameState.CHALLENGES),
             on_instructions=lambda: self.set_state(GameState.HOW_TO_PLAY),
             on_camera_check=lambda: self.set_state(GameState.CAMERA_CHECK),
             on_quit=self.quit_game,
@@ -122,6 +138,11 @@ class GameManager:
         )
         self.level_select_screen = LevelSelectScreen(
             on_select_level=self.select_level_and_play,
+            on_back=lambda: self.set_state(GameState.MAIN_MENU),
+            sound_manager=self.sound_manager
+        )
+        self.challenge_screen = ChallengeScreen(
+            on_start_challenge=self.start_challenge,
             on_back=lambda: self.set_state(GameState.MAIN_MENU),
             sound_manager=self.sound_manager
         )
@@ -163,6 +184,9 @@ class GameManager:
 
     def start_new_expedition(self) -> None:
         """Starts game from Level 1 with full vitals."""
+        self.active_challenge_id = None
+        self.combo_count = 0
+        self.combo_multiplier = 1.0
         self.current_level_id = 1
         self.player = Player()
         self.load_level(1)
@@ -170,14 +194,56 @@ class GameManager:
 
     def select_level_and_play(self, level_id: int) -> None:
         """Jumps directly to selected unlocked level."""
+        self.active_challenge_id = None
+        self.combo_count = 0
+        self.combo_multiplier = 1.0
         self.current_level_id = level_id
         self.load_level(level_id)
         self.set_state(GameState.PLAYING)
 
-    def restart_current_level(self) -> None:
-        """Restarts the active level with full oxygen."""
-        self.load_level(self.current_level_id)
+    def start_challenge(self, challenge_id: int) -> None:
+        """Launches a high-stakes abyssal challenge trial."""
+        self.active_challenge_id = challenge_id
+        cfg = CHALLENGES[challenge_id]
+        self.current_level_id = cfg.level_config.level_id
+        self.player = Player()
+        self.current_level = Level(1)
+        # Apply custom challenge parameters
+        self.current_level.config = cfg.level_config
+        self.current_level.level_id = cfg.level_config.level_id
+        self.current_level.time_remaining = cfg.time_limit
+        self.current_level.required_deposits = cfg.required_deposits
+        self.current_level.deposited_count = 0
+        
+        # Spawn tailored challenge treasures & hazards
+        self.current_level.treasure_manager.spawn_level_treasures(
+            common_count=cfg.level_config.common_treasures,
+            gold_count=cfg.level_config.gold_treasures,
+            rare_count=cfg.level_config.rare_treasures,
+            ancient_count=cfg.level_config.ancient_treasures,
+            fake_count=cfg.level_config.fake_treasures,
+            trap_count=cfg.level_config.traps,
+            screen_w=SCREEN_WIDTH,
+            screen_h=SCREEN_HEIGHT
+        )
+        if cfg.jellyfish_count > 0:
+            self.current_level.marine_manager.spawn_jellyfish(cfg.jellyfish_count)
+
+        self.particles = ParticleSystem()
+        self.gesture_detector.reset()
+        self.combo_count = 0
+        self.combo_multiplier = 1.0
         self.set_state(GameState.PLAYING)
+
+    def restart_current_level(self) -> None:
+        """Restarts the active level or challenge with full oxygen."""
+        if self.active_challenge_id is not None:
+            self.start_challenge(self.active_challenge_id)
+        else:
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
+            self.load_level(self.current_level_id)
+            self.set_state(GameState.PLAYING)
 
     def advance_to_next_level(self) -> None:
         """Advances to next level or triggers final victory screen."""
@@ -196,6 +262,8 @@ class GameManager:
         self.player.reset_for_level()
         self.particles = ParticleSystem()
         self.gesture_detector.reset()
+        self.whirlpool_timer = 0.0
+        self.octopus_timer = 0.0
 
     def toggle_fullscreen(self) -> None:
         """Toggles between immersive fullscreen and windowed display mode."""
@@ -236,7 +304,7 @@ class GameManager:
                         self.set_state(GameState.PAUSED)
                     elif self.current_state == GameState.PAUSED:
                         self.set_state(GameState.PLAYING)
-                    elif self.current_state in (GameState.HOW_TO_PLAY, GameState.CAMERA_CHECK, GameState.LEVEL_SELECT):
+                    elif self.current_state in (GameState.HOW_TO_PLAY, GameState.CAMERA_CHECK, GameState.LEVEL_SELECT, GameState.CHALLENGES):
                         self.set_state(GameState.MAIN_MENU)
                 elif event.key in (pygame.K_F11, pygame.K_f):
                     self.toggle_fullscreen()
@@ -315,6 +383,9 @@ class GameManager:
         elif self.current_state == GameState.LEVEL_SELECT:
             self.level_select_screen.update(cursor_x, cursor_y, pinch_triggered, dt, self.unlocked_levels, self.completed_levels)
 
+        elif self.current_state == GameState.CHALLENGES:
+            self.challenge_screen.update(cursor_x, cursor_y, pinch_triggered, dt)
+
         elif self.current_state == GameState.HOW_TO_PLAY:
             self.instructions_screen.update(cursor_x, cursor_y, pinch_triggered, dt)
 
@@ -344,7 +415,7 @@ class GameManager:
                 shield_active
             )
 
-        # 3. Update Swimmer Kinematics & Particles
+        # 3. Update Swimmer Kinematics, Cursor & Particles
         is_pinching = (current_gesture == GestureType.PINCH or pinch_triggered)
         current_force = 180.0 if (self.player.current_active_timer > 0) else 0.0
         emit_regulator_bubble = self.player.update(dt, cursor_x, cursor_y, is_pinching, shield_active, current_force)
@@ -354,6 +425,29 @@ class GameManager:
             self.particles.emit_cursor_trail(self.player.x, self.player.y - 10)
 
         self.particles.update(dt, current_active=(self.player.current_active_timer > 0))
+
+        # Update Custom Vision Hand Cursor
+        is_hover_t = False
+        is_hover_d = False
+        if self.current_level and self.current_state == GameState.PLAYING:
+            is_hover_t = (
+                self.current_level.treasure_manager.get_hovered_treasure(cursor_x, cursor_y) is not None
+                or self.current_level.treasure_manager.get_hovered_crate(cursor_x, cursor_y) is not None
+            )
+            is_hover_d = (
+                self.player.is_hovering_danger
+                or (self.current_level.marine_manager.current_shark is not None and self.current_level.marine_manager.current_shark.check_cursor_collision(cursor_x, cursor_y))
+            )
+        self.hand_cursor.update(
+            raw_x=cursor_x,
+            raw_y=cursor_y,
+            is_detected=self.is_hand_detected,
+            current_gesture=current_gesture,
+            is_hovering_treasure=is_hover_t,
+            is_hovering_danger=is_hover_d,
+            sonar_active=(current_gesture == GestureType.TWO_FINGERS or sonar_triggered),
+            dt=dt
+        )
 
     def _update_gameplay(
         self,
@@ -383,7 +477,7 @@ class GameManager:
                 self.particles.emit_water_current()
 
         # Update Level Environment, Fish, Hazards, Timers
-        lvl_complete, time_expired, shark_hit, shark_deflected = self.current_level.update(
+        lvl_complete, time_expired, shark_hit, shark_deflected, jelly_hit, jelly_deflected = self.current_level.update(
             dt,
             current_active,
             swimmer_pos,
@@ -394,11 +488,123 @@ class GameManager:
         if shark_deflected:
             self.sound_manager.play('bubble')
             self.particles.emit_treasure_burst(self.player.x, self.player.y, count=10, color=COLOR_NEON_TEAL)
+            if self.active_challenge_id == 1:
+                self.player.add_score(150)
+                self.particles.emit_score_popup(self.player.x, self.player.y - 30, "+150 SHARK DEFLECTION! 🦈", COLOR_GOLD)
         elif shark_hit:
             self.sound_manager.play('trap')
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
             self.player.reduce_oxygen(35.0, shake_duration=0.5, shake_power=14.0)
             self.particles.emit_trap_explosion(self.player.x, self.player.y)
             self.particles.emit_score_popup(self.player.x, self.player.y, "-35% OXYGEN [SHARK BITE!]", COLOR_CORAL_RED)
+
+        # Electric Jellyfish Interaction Handling
+        if jelly_deflected:
+            self.sound_manager.play('bubble')
+            self.particles.emit_treasure_burst(self.player.x, self.player.y, count=12, color=(210, 120, 255))
+            self.particles.emit_score_popup(self.player.x, self.player.y - 20, "JELLY DEFLECTED! ⚡", (220, 160, 255))
+            self.player.add_score(75)
+        elif jelly_hit:
+            self.sound_manager.play('trap')
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
+            self.player.reduce_oxygen(15.0, shake_duration=0.45, shake_power=10.0)
+            self.particles.emit_score_popup(self.player.x, self.player.y, "-15% OXYGEN [ELECTRIC SHOCK!]", (220, 100, 255))
+
+        # Check Air Bubble Stations
+        air_restored = self.current_level.treasure_manager.check_air_stations(self.player.x, self.player.y)
+        if air_restored > 0:
+            self.player.oxygen = min(100.0, self.player.oxygen + air_restored)
+            self.sound_manager.play('bubble')
+            self.particles.emit_score_popup(self.player.x, self.player.y - 35, "+25% OXYGEN! 🫧", COLOR_EMERALD)
+
+        # Check Mystery Crates (Opened via pinch)
+        hovered_crate = (
+            self.current_level.treasure_manager.get_hovered_crate(target_x, target_y)
+            or self.current_level.treasure_manager.get_hovered_crate(self.player.x, self.player.y)
+        )
+        if pinch_triggered and hovered_crate and not hovered_crate.is_opened:
+            rtype, rscore, rox, rsonar = hovered_crate.open_crate()
+            if rscore > 0:
+                self.player.add_score(rscore)
+            if rox > 0:
+                self.player.oxygen = min(100.0, self.player.oxygen + rox)
+            elif rox < 0:
+                self.player.reduce_oxygen(abs(rox), shake_duration=0.4, shake_power=8.0)
+                self.combo_count = 0
+                self.combo_multiplier = 1.0
+                self.sound_manager.play('trap')
+            if rsonar > 0:
+                self.player.sonar_charges += rsonar
+
+            if rtype != "TRAP":
+                self.sound_manager.play('treasure')
+                self.particles.emit_treasure_burst(hovered_crate.x, hovered_crate.y, count=22, color=COLOR_GOLD)
+                self.particles.emit_score_popup(hovered_crate.x, hovered_crate.y - 30, f"CRATE: {rtype}! 📦 +{rscore}", COLOR_GOLD)
+            else:
+                self.particles.emit_trap_explosion(hovered_crate.x, hovered_crate.y)
+                self.particles.emit_score_popup(hovered_crate.x, hovered_crate.y - 30, "CRATE TRAP! 💥", COLOR_CORAL_RED)
+
+        # Check Whirlpools
+        if self.current_level_id >= 2 and len(self.current_level.marine_manager.active_whirlpools) == 0:
+            self.whirlpool_timer += dt
+            if self.whirlpool_timer >= 22.0:
+                self.whirlpool_timer = 0.0
+                self.current_level.marine_manager.trigger_whirlpool()
+                self.sound_manager.play('current')
+
+        w_fx, w_fy, w_dmg, w_esc = self.current_level.marine_manager.apply_whirlpools(self.player.x, self.player.y)
+        if w_fx != 0 or w_fy != 0:
+            self.player.x += w_fx * dt
+            self.player.y += w_fy * dt
+
+        if w_dmg:
+            self.player.reduce_oxygen(15.0, shake_duration=0.5, shake_power=12.0)
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
+            self.sound_manager.play('trap')
+            self.particles.emit_score_popup(self.player.x, self.player.y, "-15% OXYGEN [WHIRLPOOL!]", COLOR_CORAL_RED)
+
+        if w_esc:
+            self.player.add_score(50)
+            self.sound_manager.play('bubble')
+            self.particles.emit_score_popup(self.player.x, self.player.y - 25, "ESCAPED WHIRLPOOL! 🌀 +50", COLOR_NEON_TEAL)
+
+        # Check Octopus Ambush (Level 4)
+        if self.current_level_id == 4 and not self.current_level.marine_manager.current_octopus:
+            self.octopus_timer += dt
+            if self.octopus_timer >= 24.0:
+                self.octopus_timer = 0.0
+                self.current_level.marine_manager.trigger_octopus_ambush()
+                self.sound_manager.play('trap')
+                self.particles.emit_score_popup(SCREEN_WIDTH // 2, 120, "OCTOPUS AMBUSH! 🐙 DODGE TENTACLES!", COLOR_CORAL_RED)
+
+        if self.current_level.marine_manager.check_octopus_interaction(self.player.x, self.player.y):
+            self.player.reduce_oxygen(12.0, shake_duration=0.4, shake_power=10.0)
+            self.combo_count = 0
+            self.combo_multiplier = 1.0
+            self.sound_manager.play('trap')
+            self.particles.emit_score_popup(self.player.x, self.player.y, "-12% OXYGEN [TENTACLE HIT!]", COLOR_CORAL_RED)
+
+        # Check Ancient Gesture Puzzle (Level 5)
+        if self.current_level.puzzle:
+            solved, step_done = self.current_level.puzzle.check_gesture(self.gesture_detector.current_gesture, self.player.x, self.player.y)
+            if step_done and not solved:
+                self.sound_manager.play('bubble')
+                self.particles.emit_treasure_burst(self.current_level.puzzle.x, self.current_level.puzzle.y, count=14, color=COLOR_NEON_TEAL)
+            if solved:
+                self.player.add_score(500)
+                self.sound_manager.play('rare_treasure')
+                self.particles.emit_treasure_burst(self.current_level.puzzle.x, self.current_level.puzzle.y, count=35, color=COLOR_GOLD)
+                self.particles.emit_score_popup(self.current_level.puzzle.x, self.current_level.puzzle.y - 45, "ANCIENT VAULT UNLOCKED! 🏆 +500", COLOR_GOLD)
+
+        # Extra challenge passive oxygen drain (e.g. Abyssal Blitz 2.2x drain)
+        if self.active_challenge_id is not None:
+            c_cfg = CHALLENGES[self.active_challenge_id]
+            if c_cfg.oxygen_drain_mult > 1.0:
+                extra_drain = PASSIVE_OXYGEN_DEPLETION_RATE * (c_cfg.oxygen_drain_mult - 1.0) * dt
+                self.player.oxygen = max(0.0, self.player.oxygen - extra_drain)
 
         # Hovered Object Detection (Near Swimmer or Aim Target)
         hovered_item = (
@@ -432,43 +638,81 @@ class GameManager:
         )
 
         # ============================================================
-        # INSTANT PICKUP & AUTOMATIC TREASURE BOX STORAGE
+        # TACTILE GRAB, CARRY & DEPOSIT INTO SEAFLOOR VAULT
         # ============================================================
-        if (pinch_triggered or direct_touch or dwell_collect) and hovered_item and not hovered_item.collected:
-            if hovered_item.type == TreasureType.TRAP:
-                # Sea Mine Trap Detonates Immediately!
-                hovered_item.collected = True
-                self.sound_manager.play('trap')
-                self.player.reduce_oxygen(hovered_item.oxygen_penalty, shake_duration=0.6, shake_power=16.0)
-                self.particles.emit_trap_explosion(hovered_item.x, hovered_item.y)
-                self.particles.emit_score_popup(hovered_item.x, hovered_item.y, "-25% OXYGEN [MINE!]", COLOR_CORAL_RED)
+        chest = self.current_level.treasure_manager.chest
+        in_chest_zone = chest.is_in_deposit_zone(self.player.x, self.player.y)
 
-            elif hovered_item.type == TreasureType.FAKE:
-                # Deceptive Counterfeit Penalty!
-                hovered_item.collected = True
-                self.sound_manager.play('fake_warning')
-                self.player.add_score(hovered_item.score_value)
-                self.player.reduce_oxygen(hovered_item.oxygen_penalty, shake_duration=0.4, shake_power=8.0)
-                self.particles.emit_score_popup(hovered_item.x, hovered_item.y, f"{hovered_item.score_value} FAKE PENALTY!", COLOR_AMBER_WARNING)
-
-            else:
-                # Genuine Relic: Automatically Stored into the Treasure Box & Score!
-                hovered_item.collected = True
+        # CASE A: Player is currently carrying a treasure
+        if self.player.carried_treasure is not None:
+            # Reached the treasure chest depot -> Deposit safely into vault!
+            if in_chest_zone:
+                deposited_item = self.player.release_carried_treasure()
+                deposited_item.collected = True
                 self.current_level.deposited_count += 1
-                self.player.add_score(hovered_item.score_value)
 
-                if hovered_item.type in (TreasureType.RARE, TreasureType.ANCIENT):
+                # Dynamic combo streak multiplier!
+                self.combo_count += 1
+                self.combo_multiplier = min(3.0, 1.0 + (self.combo_count - 1) * 0.5)
+                earned_score = int(deposited_item.score_value * self.combo_multiplier)
+                self.player.add_score(earned_score)
+
+                # Challenge 2 (Abyssal Blitz) relic oxygen recharge
+                if self.active_challenge_id == 2:
+                    self.player.oxygen = min(100.0, self.player.oxygen + 20.0)
+                    self.particles.emit_score_popup(self.player.x, self.player.y - 45, "+20% OXYGEN RECHARGE! 🔋", COLOR_EMERALD)
+
+                if deposited_item.type in (TreasureType.RARE, TreasureType.ANCIENT):
                     self.sound_manager.play('rare_treasure')
                 else:
                     self.sound_manager.play('treasure')
 
-                # Celebration visual burst at item location
-                self.particles.emit_treasure_burst(hovered_item.x, hovered_item.y, count=24, color=hovered_item.base_color)
-                self.particles.emit_score_popup(hovered_item.x, hovered_item.y - 25, f"+{hovered_item.score_value} IN TREASURE BOX! 🎁", COLOR_GOLD)
+                # Celebration visual burst at chest vault
+                self.particles.emit_treasure_burst(chest.x, chest.y - 12, count=24, color=deposited_item.base_color)
+                combo_str = f" [x{self.combo_multiplier:.1f} COMBO! 🔥]" if self.combo_multiplier > 1.0 else ""
+                self.particles.emit_score_popup(chest.x, chest.y - 30, f"+{earned_score} DEPOSITED! 🎁{combo_str}", COLOR_GOLD)
 
-                # Visual spark cascade towards the seafloor collection vault
-                chest = self.current_level.treasure_manager.chest
-                self.particles.emit_treasure_burst(chest.x, chest.y - 10, count=10, color=COLOR_GOLD)
+        # CASE B: Player is NOT currently carrying a treasure
+        else:
+            if (pinch_triggered or direct_touch or dwell_collect) and hovered_item and not hovered_item.collected:
+                if hovered_item.type == TreasureType.TRAP:
+                    # Sea Mine Trap Detonates Immediately!
+                    hovered_item.collected = True
+                    self.combo_count = 0
+                    self.combo_multiplier = 1.0
+                    self.sound_manager.play('trap')
+                    self.player.reduce_oxygen(hovered_item.oxygen_penalty, shake_duration=0.6, shake_power=16.0)
+                    self.particles.emit_trap_explosion(hovered_item.x, hovered_item.y)
+                    self.particles.emit_score_popup(hovered_item.x, hovered_item.y, "-25% OXYGEN [MINE!]", COLOR_CORAL_RED)
+
+                elif hovered_item.type == TreasureType.FAKE:
+                    # Deceptive Counterfeit Penalty!
+                    hovered_item.collected = True
+                    self.combo_count = 0
+                    self.combo_multiplier = 1.0
+                    self.sound_manager.play('fake_warning')
+                    self.player.add_score(hovered_item.score_value)
+                    self.player.reduce_oxygen(hovered_item.oxygen_penalty, shake_duration=0.4, shake_power=8.0)
+                    self.particles.emit_score_popup(hovered_item.x, hovered_item.y, f"{hovered_item.score_value} FAKE PENALTY!", COLOR_AMBER_WARNING)
+
+                else:
+                    # Genuine Relic: Grab and Carry!
+                    # If already in the chest zone, deposit immediately; otherwise attach to swimmer hands!
+                    if in_chest_zone:
+                        hovered_item.collected = True
+                        self.current_level.deposited_count += 1
+                        self.combo_count += 1
+                        self.combo_multiplier = min(3.0, 1.0 + (self.combo_count - 1) * 0.5)
+                        earned_score = int(hovered_item.score_value * self.combo_multiplier)
+                        self.player.add_score(earned_score)
+                        self.sound_manager.play('treasure')
+                        self.particles.emit_treasure_burst(chest.x, chest.y - 12, count=24, color=hovered_item.base_color)
+                        combo_str = f" [x{self.combo_multiplier:.1f} COMBO! 🔥]" if self.combo_multiplier > 1.0 else ""
+                        self.particles.emit_score_popup(chest.x, chest.y - 30, f"+{earned_score} DEPOSITED! 🎁{combo_str}", COLOR_GOLD)
+                    else:
+                        self.player.grab_treasure(hovered_item)
+                        self.sound_manager.play('treasure')
+                        self.particles.emit_score_popup(self.player.x, self.player.y - 20, "GRABBED! 🤏 SWIM TO CHEST", COLOR_GOLD)
 
         # Check Level Completion (Objective Reached)
         if lvl_complete:
@@ -503,6 +747,9 @@ class GameManager:
         elif self.current_state == GameState.LEVEL_SELECT:
             self.level_select_screen.draw(scene_surf, self.unlocked_levels, self.completed_levels)
 
+        elif self.current_state == GameState.CHALLENGES:
+            self.challenge_screen.draw(scene_surf)
+
         elif self.current_state == GameState.HOW_TO_PLAY:
             self.instructions_screen.draw(scene_surf)
 
@@ -536,12 +783,17 @@ class GameManager:
                 # Active Underwater Swimmer Explorer
                 self.player.draw_swimmer(scene_surf)
 
-                # Depth Fog
-                self.current_level.draw_fog(scene_surf)
+                # Depth Fog with Flashlight Illumination around Diver
+                self.current_level.draw_fog(
+                    scene_surf,
+                    player_pos=(self.player.x, self.player.y),
+                    sonar_active=(self.gesture_detector.current_gesture == GestureType.TWO_FINGERS)
+                )
+
                 # Foreground Visual Effects & Streams
                 self.particles.draw_foreground(scene_surf)
 
-                # In-Game HUD with Objective Progress & Carry status
+                # In-Game HUD with Objective Progress, Minimap & Carry status
                 carried_name = self.player.carried_treasure.type.value if self.player.carried_treasure else None
                 self.hud.draw(
                     scene_surf,
@@ -556,7 +808,13 @@ class GameManager:
                     current_gesture=self.gesture_detector.current_gesture,
                     is_shield_active=self.player.shield_active,
                     water_current_active=(self.player.current_active_timer > 0),
-                    carried_treasure_type=carried_name
+                    carried_treasure_type=carried_name,
+                    combo_multiplier=self.combo_multiplier,
+                    is_challenge=(self.active_challenge_id is not None),
+                    player_pos=(self.player.x, self.player.y),
+                    chest_pos=(self.current_level.treasure_manager.chest.x, self.current_level.treasure_manager.chest.y),
+                    exploration_ratio=self.current_level.get_exploration_ratio(),
+                    explored_grid=self.current_level.explored_grid
                 )
 
             # State Modals
@@ -580,52 +838,8 @@ class GameManager:
             elif self.current_state == GameState.VICTORY:
                 self.victory_screen.draw(scene_surf, total_score=self.player.score)
 
-        # 2. Render Hand Tracking Reticle (if hand is detected by webcam)
-        if self.is_hand_detected:
-            hx, hy = self.last_cursor_pos
-            pulse = math.sin(time.time() * 6.0) * 3.0
-            r = int(16 + pulse)
-            reticle_surf = pygame.Surface((r * 2 + 30, r * 2 + 30), pygame.SRCALPHA)
-            rcx, rcy = r + 15, r + 15
-            
-            # Gesture color and label
-            cur_g = self.gesture_detector.current_gesture
-            if cur_g == GestureType.PINCH:
-                ring_col = (*COLOR_GOLD[:3], 220)
-                pip_col = COLOR_GOLD
-                label_text = "INDEX CLICK 👆"
-            elif cur_g == GestureType.TWO_FINGERS:
-                ring_col = (*COLOR_OCEAN_CYAN[:3], 220)
-                pip_col = COLOR_OCEAN_CYAN
-                label_text = "SONAR ✌️"
-            elif cur_g == GestureType.OPEN_PALM:
-                ring_col = (*COLOR_WHITE[:3], 230)
-                pip_col = COLOR_WHITE
-                label_text = "CURRENT ✋"
-            elif cur_g == GestureType.FIST:
-                ring_col = (*COLOR_NEON_TEAL[:3], 230)
-                pip_col = COLOR_NEON_TEAL
-                label_text = "SHIELD ✊"
-            else:
-                ring_col = (*COLOR_NEON_TEAL[:3], 160)
-                pip_col = COLOR_NEON_TEAL
-                label_text = "HAND 🖐️"
-
-            # Outer ring & pips
-            pygame.draw.circle(reticle_surf, ring_col, (rcx, rcy), r, 2)
-            pygame.draw.circle(reticle_surf, (*pip_col[:3], 200), (rcx, rcy), 3)
-            pygame.draw.line(reticle_surf, pip_col, (rcx - r - 4, rcy), (rcx - r + 3, rcy), 2)
-            pygame.draw.line(reticle_surf, pip_col, (rcx + r - 3, rcy), (rcx + r + 4, rcy), 2)
-            pygame.draw.line(reticle_surf, pip_col, (rcx, rcy - r - 4), (rcx, rcy - r + 3), 2)
-            pygame.draw.line(reticle_surf, pip_col, (rcx, rcy + r - 3), (rcx, rcy + r + 4), 2)
-            
-            # Blit reticle
-            scene_surf.blit(reticle_surf, (hx - rcx, hy - rcy))
-
-            # Small floating label next to hand reticle
-            g_font = pygame.font.SysFont("segoeui", 11, bold=True)
-            lbl = g_font.render(label_text, True, pip_col)
-            scene_surf.blit(lbl, (hx + r + 8, hy - 8))
+        # 2. Render Custom Glowing Vision Hand Cursor (ALWAYS visible)
+        self.hand_cursor.draw(scene_surf)
 
         # 3. Blit Screen Shake if active
         if shake_dx != 0 or shake_dy != 0:

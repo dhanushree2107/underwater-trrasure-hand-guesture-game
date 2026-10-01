@@ -311,15 +311,152 @@ class TreasureChest:
         surface.blit(label_surf, (cx - label_surf.get_width() // 2, cy + 28))
 
 
+class MysteryCrate:
+    """An underwater mystery crate that can be opened via pinch to reveal random contents."""
+    def __init__(self, x: float, y: float):
+        self.x = x
+        self.y = y
+        self.radius = 32.0
+        self.is_opened = False
+        self.pulse_phase = random.uniform(0, math.pi * 2)
+        self.revealed_timer = 0.0
+
+    def update(self, dt: float, current_force_x: float = 0.0) -> None:
+        self.pulse_phase += 3.0 * dt
+        if current_force_x != 0:
+            self.x += current_force_x * 0.15 * dt
+            self.x = max(60.0, min(SCREEN_WIDTH - 60.0, self.x))
+
+    def is_hovered(self, cx: float, cy: float) -> bool:
+        if self.is_opened:
+            return False
+        return point_in_circle(cx, cy, self.x, self.y, self.radius + 25.0)
+
+    def open_crate(self) -> Tuple[str, int, float, int]:
+        """
+        Opens crate. Returns (reward_type, score_val, oxygen_val, sonar_val).
+        Possible rewards: 'OXYGEN', 'SONAR', 'TREASURE', 'BONUS', 'TRAP'
+        """
+        self.is_opened = True
+        choices = ["OXYGEN", "SONAR", "TREASURE", "BONUS", "TRAP"]
+        weights = [0.35, 0.25, 0.20, 0.12, 0.08]
+        outcome = random.choices(choices, weights=weights)[0]
+        if outcome == "OXYGEN":
+            return ("OXYGEN", 50, 25.0, 0)
+        elif outcome == "SONAR":
+            return ("SONAR", 75, 0.0, 1)
+        elif outcome == "TREASURE":
+            return ("TREASURE", 250, 0.0, 0)
+        elif outcome == "BONUS":
+            return ("BONUS", 150, 0.0, 0)
+        else:
+            return ("TRAP", 0, -15.0, 0)
+
+    def draw(self, surface: pygame.Surface) -> None:
+        if self.is_opened:
+            return
+        cx, cy = int(self.x), int(self.y)
+        w, h = 48, 44
+        rx, ry = cx - w // 2, cy - h // 2
+        # Crate body
+        pygame.draw.rect(surface, (135, 95, 55), (rx, ry, w, h), border_radius=4)
+        pygame.draw.rect(surface, (70, 45, 20), (rx, ry, w, h), width=2, border_radius=4)
+        # Metal corner brackets
+        pygame.draw.rect(surface, (190, 150, 60), (rx, ry, 8, 8))
+        pygame.draw.rect(surface, (190, 150, 60), (rx + w - 8, ry, 8, 8))
+        pygame.draw.rect(surface, (190, 150, 60), (rx, ry + h - 8, 8, 8))
+        pygame.draw.rect(surface, (190, 150, 60), (rx + w - 8, ry + h - 8, 8, 8))
+        # Pulsing Question Mark
+        pulse = math.sin(self.pulse_phase)
+        font = pygame.font.SysFont("segoeui", 22, bold=True)
+        q_col = (int(220 + 35 * pulse), int(190 + 50 * pulse), 60)
+        q_surf = font.render("?", True, q_col)
+        surface.blit(q_surf, (cx - q_surf.get_width() // 2, cy - q_surf.get_height() // 2))
+
+
+class AirBubbleStation:
+    """An oxygen reef vent providing air to the diver."""
+    def __init__(self, x: float, y: float = SCREEN_HEIGHT - 65.0):
+        self.x = x
+        self.y = y
+        self.radius = 42.0
+        self.cooldown = 0.0
+        self.max_cooldown = 12.0
+        self.pulse_phase = random.uniform(0, math.pi * 2)
+        self.bubbles: List[Tuple[float, float, float, float]] = []
+
+    def update(self, dt: float) -> None:
+        self.pulse_phase += 3.5 * dt
+        if self.cooldown > 0:
+            self.cooldown = max(0.0, self.cooldown - dt)
+
+        # Spawn rising oxygen bubbles
+        if random.random() < 0.35:
+            self.bubbles.append((
+                self.x + random.uniform(-14, 14),
+                self.y - 10,
+                random.uniform(-50.0, -25.0),
+                random.uniform(2.5, 5.0)
+            ))
+
+        new_b = []
+        for bx, by, bvy, br in self.bubbles:
+            by += bvy * dt
+            if by > self.y - 85:
+                new_b.append((bx, by, bvy, br))
+        self.bubbles = new_b
+
+    def check_restore(self, px: float, py: float) -> float:
+        """Restores +25% oxygen if diver is within vent radius and station is ready."""
+        if self.cooldown <= 0 and distance(px, py, self.x, self.y) <= self.radius:
+            self.cooldown = self.max_cooldown
+            return 25.0
+        return 0.0
+
+    def draw(self, surface: pygame.Surface) -> None:
+        cx, cy = int(self.x), int(self.y)
+        r = int(self.radius)
+
+        # Vent rock base
+        pygame.draw.ellipse(surface, (50, 75, 80), (cx - 28, cy - 14, 56, 28))
+        pygame.draw.ellipse(surface, (20, 160, 140), (cx - 16, cy - 8, 32, 16))
+
+        # Rising bubbles
+        for bx, by, _, br in self.bubbles:
+            pygame.draw.circle(surface, (180, 240, 255), (int(bx), int(by)), int(br), 1)
+            pygame.draw.circle(surface, (255, 255, 255), (int(bx - 1), int(by - 1)), max(1, int(br * 0.4)))
+
+        # Status Aura / Cooldown Ring
+        is_ready = (self.cooldown <= 0)
+        pulse = math.sin(self.pulse_phase)
+        aura_alpha = int(90 + 40 * pulse) if is_ready else 35
+        aura_col = (*COLOR_EMERALD[:3], aura_alpha) if is_ready else (70, 90, 110, 40)
+        
+        aura_surf = pygame.Surface((r * 2 + 10, r * 2 + 10), pygame.SRCALPHA)
+        pygame.draw.circle(aura_surf, aura_col, (r + 5, r + 5), r, 2)
+        surface.blit(aura_surf, (cx - r - 5, cy - r - 5))
+
+        # Label
+        font = pygame.font.SysFont("segoeui", 11, bold=True)
+        lbl_text = "AIR +25% 🫧" if is_ready else f"RECHARGING {int(self.cooldown)}s"
+        lbl_col = COLOR_EMERALD if is_ready else (170, 190, 200)
+        lbl_surf = font.render(lbl_text, True, lbl_col)
+        surface.blit(lbl_surf, (cx - lbl_surf.get_width() // 2, cy - r - 18))
+
+
 class TreasureManager:
-    """Spawns, updates, reveals, and tracks all treasures and the collection depot."""
+    """Spawns, updates, reveals, and tracks all treasures, mystery crates, air stations, and the collection depot."""
 
     def __init__(self):
         self.treasures: List[Treasure] = []
         self.chest: TreasureChest = TreasureChest()
+        self.mystery_crates: List[MysteryCrate] = []
+        self.air_stations: List[AirBubbleStation] = []
 
     def clear(self) -> None:
         self.treasures.clear()
+        self.mystery_crates.clear()
+        self.air_stations.clear()
 
     def spawn_level_treasures(
         self,
@@ -369,10 +506,24 @@ class TreasureManager:
             if not placed:
                 self.treasures.append(Treasure(random.uniform(min_x, max_x), random.uniform(min_y, max_y), t_type))
 
+        # Spawn Mystery Crates
+        self.mystery_crates.append(MysteryCrate(random.uniform(320.0, 580.0), screen_h - 95.0))
+        self.mystery_crates.append(MysteryCrate(random.uniform(720.0, 1100.0), screen_h - 95.0))
+
+        # Spawn Air Bubble Stations
+        self.air_stations.append(AirBubbleStation(random.uniform(280.0, 500.0), screen_h - 55.0))
+        self.air_stations.append(AirBubbleStation(random.uniform(780.0, 1120.0), screen_h - 55.0))
+
     def update(self, dt: float, current_active: bool = False, player_pos: Tuple[float, float] = None) -> None:
         force = 120.0 if current_active else 0.0
         for t in self.treasures:
             t.update(dt, force)
+
+        for c in self.mystery_crates:
+            c.update(dt, force)
+
+        for a in self.air_stations:
+            a.update(dt)
 
         player_is_near = False
         if player_pos:
@@ -395,9 +546,33 @@ class TreasureManager:
                 return t
         return None
 
+    def get_hovered_crate(self, cursor_x: float, cursor_y: float) -> Optional[MysteryCrate]:
+        """Returns the first un-opened mystery crate within reach."""
+        for c in self.mystery_crates:
+            if c.is_hovered(cursor_x, cursor_y):
+                return c
+        return None
+
+    def check_air_stations(self, px: float, py: float) -> float:
+        """Checks if diver is in contact with any ready air station, returning restored oxygen amount."""
+        total_restored = 0.0
+        for a in self.air_stations:
+            restored = a.check_restore(px, py)
+            if restored > 0.0:
+                total_restored += restored
+        return total_restored
+
     def draw(self, surface: pygame.Surface) -> None:
+        # Draw Air Bubble Stations on Seafloor
+        for a in self.air_stations:
+            a.draw(surface)
+
         # Draw Seafloor Deposit Vault Chest
         self.chest.draw(surface)
+
+        # Draw Mystery Crates
+        for c in self.mystery_crates:
+            c.draw(surface)
 
         # Draw Uncollected Treasures
         for t in self.treasures:

@@ -85,7 +85,6 @@ class HandDetector:
         self.persisted_screen_y: float = float(SCREEN_HEIGHT // 2)
         self.persisted_handedness: str = "Unknown"
         self.persistence_duration: float = 0.55  # Maintain tracking across 550ms dropouts
-        self.is_tasks_api: bool = False
 
         self._init_mediapipe()
 
@@ -95,56 +94,16 @@ class HandDetector:
             self.camera_error = "MediaPipe library is not installed."
             return
 
-        # 1. Try legacy mp.solutions.hands if present
-        if hasattr(mp, 'solutions') and hasattr(mp.solutions, 'hands'):
-            try:
-                self.mp_hands = mp.solutions.hands
-                self.mp_drawing = mp.solutions.drawing_utils
-                self.hands_detector = self.mp_hands.Hands(
-                    static_image_mode=False,
-                    max_num_hands=MAX_NUM_HANDS,
-                    min_detection_confidence=MIN_DETECTION_CONFIDENCE,
-                    min_tracking_confidence=MIN_TRACKING_CONFIDENCE,
-                )
-                self.is_tasks_api = False
-                print("[Vision] MediaPipe Hands model initialized successfully (Solutions API).")
-                return
-            except Exception as e:
-                print(f"[Vision Warning] Solutions API initialization failed: {e}")
-
-        # 2. Modern mp.tasks.vision.HandLandmarker
         try:
-            import os
-            from mediapipe.tasks import python as mp_python
-            from mediapipe.tasks.python import vision as mp_vision
-
-            possible_paths = [
-                os.path.join(os.path.dirname(os.path.dirname(__file__)), "hand_landmarker.task"),
-                os.path.join(os.getcwd(), "hand_landmarker.task"),
-                "hand_landmarker.task"
-            ]
-            model_path = next((p for p in possible_paths if os.path.exists(p)), None)
-            if not model_path or not os.path.exists(model_path):
-                model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "hand_landmarker.task")
-                try:
-                    import urllib.request
-                    print(f"[Vision] Downloading MediaPipe hand landmarker model to {model_path}...")
-                    url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
-                    urllib.request.urlretrieve(url, model_path)
-                    print("[Vision] Download complete.")
-                except Exception as dl_err:
-                    print(f"[Vision Warning] Could not auto-download model: {dl_err}")
-
-            base_options = mp_python.BaseOptions(model_asset_path=model_path)
-            options = mp_vision.HandLandmarkerOptions(
-                base_options=base_options,
-                num_hands=MAX_NUM_HANDS,
-                min_hand_detection_confidence=MIN_DETECTION_CONFIDENCE,
+            self.mp_hands = mp.solutions.hands
+            self.mp_drawing = mp.solutions.drawing_utils
+            self.hands_detector = self.mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=MAX_NUM_HANDS,
+                min_detection_confidence=MIN_DETECTION_CONFIDENCE,
                 min_tracking_confidence=MIN_TRACKING_CONFIDENCE,
             )
-            self.hands_detector = mp_vision.HandLandmarker.create_from_options(options)
-            self.is_tasks_api = True
-            print("[Vision] MediaPipe Hands model initialized successfully (Tasks API).")
+            print("[Vision] MediaPipe Hands model initialized successfully.")
         except Exception as e:
             self.camera_error = f"Failed to initialize MediaPipe: {e}"
             print(f"[Vision Error] {self.camera_error}")
@@ -198,14 +157,14 @@ class HandDetector:
     def stop(self) -> None:
         """Stops background thread and releases camera."""
         self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
         if self.cap:
             try:
                 self.cap.release()
             except Exception:
                 pass
             self.cap = None
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=0.5)
 
     def _capture_worker(self) -> None:
         """Background thread loop for reading frames and running MediaPipe."""
@@ -253,26 +212,17 @@ class HandDetector:
             return detection
 
         try:
-            landmarks = None
-            handedness_label = "Unknown"
+            results = self.hands_detector.process(rgb_frame)
+            if results.multi_hand_landmarks:
+                # Use primary hand (first detected hand)
+                hand_landmarks = results.multi_hand_landmarks[0]
+                landmarks = [(lm.x, lm.y, lm.z) for lm in hand_landmarks.landmark]
+                
+                # Handedness label
+                handedness_label = "Unknown"
+                if results.multi_handedness:
+                    handedness_label = results.multi_handedness[0].classification[0].label
 
-            if getattr(self, "is_tasks_api", False):
-                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-                results = self.hands_detector.detect(mp_image)
-                if results.hand_landmarks:
-                    hand_landmarks = results.hand_landmarks[0]
-                    landmarks = [(lm.x, lm.y, lm.z) for lm in hand_landmarks]
-                    if results.handedness and results.handedness[0]:
-                        handedness_label = results.handedness[0][0].category_name
-            else:
-                results = self.hands_detector.process(rgb_frame)
-                if results.multi_hand_landmarks:
-                    hand_landmarks = results.multi_hand_landmarks[0]
-                    landmarks = [(lm.x, lm.y, lm.z) for lm in hand_landmarks.landmark]
-                    if results.multi_handedness and results.multi_handedness[0].classification:
-                        handedness_label = results.multi_handedness[0].classification[0].label
-
-            if landmarks:
                 # Anchor cursor directly to index finger with tap stability blend
                 index_tip = landmarks[8]
                 index_pip = landmarks[6]
@@ -336,23 +286,23 @@ class HandDetector:
 
     def render_debug_overlay(self, frame: np.ndarray, landmarks: List[Tuple[float, float, float]]) -> np.ndarray:
         """Draws landmark skeleton onto frame for camera preview / debug mode."""
-        if not landmarks:
+        if not landmarks or not self.mp_drawing or not self.mp_hands:
             return frame
 
         annotated = frame.copy()
         h, w, _ = frame.shape
-        connections = [
-            (0, 1), (1, 2), (2, 3), (3, 4),
-            (0, 5), (5, 6), (6, 7), (7, 8),
-            (5, 9), (9, 10), (10, 11), (11, 12),
-            (9, 13), (13, 14), (14, 15), (15, 16),
-            (13, 17), (17, 18), (18, 19), (19, 20),
-            (0, 17)
-        ]
-        pts = [(int(lm[0] * w), int(lm[1] * h)) for lm in landmarks]
-        for p1, p2 in connections:
-            if p1 < len(pts) and p2 < len(pts):
-                cv2.line(annotated, pts[p1], pts[p2], (0, 245, 212), 2)
-        for pt in pts:
-            cv2.circle(annotated, pt, 3, (0, 180, 216), -1)
+        # Reconstruct landmark proto
+        from mediapipe.framework.formats import landmark_pb2
+        proto = landmark_pb2.NormalizedLandmarkList()
+        for x, y, z in landmarks:
+            lm = proto.landmark.add()
+            lm.x, lm.y, lm.z = x, y, z
+        
+        self.mp_drawing.draw_landmarks(
+            annotated,
+            proto,
+            self.mp_hands.HAND_CONNECTIONS,
+            self.mp_drawing.DrawingSpec(color=(0, 245, 212), thickness=2, circle_radius=3),
+            self.mp_drawing.DrawingSpec(color=(0, 180, 216), thickness=2, circle_radius=2)
+        )
         return annotated

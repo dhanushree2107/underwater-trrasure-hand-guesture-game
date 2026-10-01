@@ -1,7 +1,7 @@
 # Executive Technical Briefing: Underwater Treasure Hunt
 ## *Vision-Based Hand Gesture Controlled Interactive Desktop Game*
 
-**Document Version:** 2.0.0  
+**Document Version:** 2.1.0  
 **Target Audience:** Technical Evaluators, Hiring Managers, Innovation Review Boards  
 **Platform:** Python 3.12 • MediaPipe 0.10.14 • OpenCV 5.0 • Pygame 2.6 • NumPy  
 
@@ -11,19 +11,31 @@
 
 **Underwater Treasure Hunt** is a commercial-grade desktop application demonstrating real-time computer vision, human-computer interaction (HCI), and high-performance game engineering in Python.
 
-### The Paradigm Shift: Hand = Swimmer
-Unlike typical academic prototypes that merely project a hand landmark as an unembodied cursor, this application implements a **physical underwater swimmer simulation**:
-* The player's hand navigates a fully animated **scuba diver explorer** character through the deep sea.
-* The swimmer features flutter-kicking twin fins, fluid pitch tilting, an illuminated headlamp beam, an air regulator exhaust emitting bubble trails, and an energy shield dome.
-* Acceleration, velocity interpolation, and hydrodynamic drag simulate the authentic feeling of swimming through water.
+### The Paradigm Shift: Hand = Swimmer + Visible Underwater Cursor
+Unlike typical academic prototypes that merely project an unembodied cursor, this application implements a **dual-role physical underwater interaction model**:
+1. **Physical Swimmer Navigation**: The player's hand navigates a fully animated **scuba diver explorer** character through the deep sea, featuring flutter-kicking twin fins, fluid pitch tilting, an illuminated headlamp beam, an air regulator exhaust emitting bubble trails, and an energy shield dome.
+2. **Permanent Underwater Hand Cursor (`ui/cursor.py`)**: A custom illuminated cursor tracks hand position in real-time, remaining visible across all screens with dynamic states:
+   - 💠 **NORMAL**: Glowing cyan bioluminescent halo with trailing bubbles.
+   - 👑 **TREASURE TARGET**: Glowing gilded gold cursor hovering over relics or mystery crates.
+   - ⚠️ **DANGER**: Flashing crimson warning halo when targeting mines, counterfeits, or predators.
+   - 🤏 **PINCH**: Contracted halo indicating tactile grab / hold.
+   - ✌️ **SONAR / ✋ CURRENT / ✊ SHIELD**: Custom kinetic pulses matching active gestures.
+   - ⚠️ **HAND NOT DETECTED**: Floating warning banner when tracking is lost, safely damping diver velocity.
 
-### The Physical Gameplay Loop: Point / Tap / Touch ➔ Automatic Vault Storage
-* Pointing at relics (0.45s hover dwell), index tapping down (👆), pinching (🤏), or swimming directly through a relic collects it immediately!
-* The relic is **automatically and instantly stored into the seafloor treasure collection box**:
-  - Score is credited immediately!
-  - Visual celebration fireworks cascade towards the treasure vault!
-  - The HUD objective counter increments automatically (`OBJECTIVE: X / Y STORED 🎁`).
-  - No slow depot hauling required—fluid, uninterrupted arcade exploration!
+### Zero Mouse Dependency: 100% Hand-Controlled Interface
+* The desktop OS mouse cursor is completely hidden (`pygame.mouse.set_visible(False)`).
+* All user interface menus (Play, Level Select, How to Play, Pause, Game Over, Win Screens) are operated strictly through hand tracking:
+  - **Move Hand**: Position illuminated cursor over glassmorphic buttons.
+  - **Pinch (🤏)**: Click / activate the selected button with tactile animation and audio feedback.
+
+### The Tactile Gameplay Loop: Grab ➔ Carry ➔ Deposit
+* **Target & Grab**: Swim near an ancient relic and pinch your thumb and index finger together to physically grab it!
+* **Carry**: The relic visibly attaches to the diver's hands as you navigate currents, avoid sharks, and solve puzzles.
+* **Deposit**: Swim to the seafloor Treasure Chest Vault and release your pinch to securely deposit the treasure:
+  - Score is credited immediately with celebration burst particles!
+  - Combo Multiplier advances (`🔥 COMBO x2`, `x3`, etc.)!
+  - Objective counter increments automatically (`OBJECTIVE: X / Y STORED 🎁`).
+  - Releasing pinch outside the vault safely drops the relic back to the seabed.
 
 ---
 
@@ -117,13 +129,24 @@ A primary flaw in naive vision scripts is that holding a pinch triggers dozens o
 
 ## 4. Key Gameplay Mechanics & Level Progression
 
-### Multi-Tiered Relic Economy
+### Multi-Tiered Relic Economy & Mystery Crates
 1. **Common Relic (+50)**: Base oceanic discovery.
 2. **Gold Treasure (+100)**: Sunken bullion chest.
 3. **Rare Artifact (+250)**: Bioluminescent sapphire chalice.
 4. **Ancient Crown (+500)**: Legendary Poseidon relic.
-5. **Deceptive Fake (-50, -12% Oxygen)**: Mimic counterfeit penalizing careless collection.
-6. **Naval Sea Mine (-25% Oxygen)**: Explosive hazard triggering screen shake and heavy loss.
+5. **Mystery Crates**: Sunken cargo boxes cracked open via pinch; yields random rewards (oxygen tanks +30%, sonar cells +2, gold bullion +150-300, rare relics, or naval traps).
+6. **Deceptive Fake (-50, -12% Oxygen)**: Mimic counterfeit penalizing careless collection.
+7. **Naval Sea Mine (-25% Oxygen)**: Explosive hazard triggering screen shake and heavy loss.
+
+### Dynamic Adventure Subsystems
+* **🫧 Air Bubble Stations**: Geothermal vents in deep trenches restoring **+25% Oxygen** with a 12-second circular recharge cooldown.
+* **🌀 Dynamic Whirlpools**: Swirling vortexes pulling the diver inward with fluid suction forces. Actively swimming against the vortex breaks free with a **+50 Escape Bonus**.
+* **🐙 Octopus Ambush**: Deep-sea cephalopod extending undulating segmented tentacles across shipwreck corridors (Level 4), requiring evasive swimming navigation.
+* **🏛️ Ancient Atlantean Gesture Puzzle**: Sunken Ruins pedestal (Level 5) requiring an ancient invocation sequence:
+  $$\text{✌️ (Sonar Scan)} \longrightarrow \text{✋ (Current Burst)} \longrightarrow \text{🤏 (Pinch Touch)}$$
+  Unlocks the secret sanctum holding the **Ancient Crown (+500 points)**.
+* **🧭 Exploration Fog of War & Minimap**: 32x18 tile grid tracked in real-time. Unexplored areas are shrouded in mist; revealed coordinates render on a bottom-left HUD radar minimap showing terrain contours, diver position, and the seafloor vault.
+* **🔦 Deep Sea Flashlight**: Levels 3, 4, and 5 immerse the player in dark waters where only a focused circular spotlight around the diver pierces the gloom, making Sonar reconnaissance vital!
 
 ### Sonar System (Two-Finger Gesture ✌️)
 Provides temporary reconnaissance. Concentric sonar rings sweep across the ocean floor, revealing:
@@ -135,7 +158,14 @@ Provides temporary reconnaissance. Concentric sonar rings sweep across the ocean
 Unleashes hydrodynamic forces that disperse schools of autonomous fish and physically dislodge uncollected relics.
 
 ### Apex Predator & Energy Shield (Fist ✊)
-In deeper shipwrecks and ancient ruins, apex predator sharks patrol the area. If a shark strikes an unshielded player, it deals a catastrophic **-35% oxygen penalty**. Curling the hand into a **Fist (✊)** deploys an energy forcefield that deflects the predator.
+In deeper shipwrecks, ancient ruins, and challenge trials, apex predator sharks patrol the area. If a shark strikes an unshielded player, it deals a catastrophic **-35% oxygen penalty**. Curling the hand into a **Fist (✊)** deploys an energy forcefield that deflects the predator.
+
+### ⚡ Abyssal Challenge Trials & Bioluminescent Hazards
+A dedicated expedition trial system (`ABYSSAL CHALLENGES ⚡`) provides high-stakes, competitive scenarios:
+* **Apex Predator Gauntlet 🦈**: Rapid 10s shark charges with **+150 DEFLECTION BONUS** per shield block.
+* **Abyssal Blitz Rush ⏱️**: High-velocity 2.2x oxygen depletion rush where relic deposits restore **+20% Oxygen**.
+* **Electric Jellyfish Abyss ⚡**: 6 pulsating bioluminescent jellyfish hazards drifting through the abyss, requiring evasive maneuvering or shield deflections to avoid oxygen shocks.
+* **Combo Multiplier Streaks 🔥**: Consecutive genuine relic deposits without taking damage scale scoring up to **3.0x**, creating high replayability and skill expression.
 
 ---
 
@@ -144,7 +174,7 @@ In deeper shipwrecks and ancient ruins, apex predator sharks patrol the area. If
 ### 1. Separation of Concerns
 * `hand_tracking/`: Encapsulates OpenCV capture, MediaPipe inference, and gesture state management. Zero dependencies on Pygame rendering.
 * `game/`: Pure game rules, swimmer kinematics, entities, collision detection, and procedural scenery.
-* `ui/`: Glassmorphic buttons, menus, Level Select screen, tutorial cards, and dynamic HUD widgets.
+* `ui/`: Always-visible glowing underwater cursor (`ui/cursor.py`), glassmorphic buttons, menus, Level Select screen, Challenge screen, tutorial cards, and dynamic HUD widgets with radar minimap.
 * `audio/`: Modular procedural audio engine synthesizing 16-bit PCM WAV buffers via Python's standard `wave` and `math` libraries.
 
 ### 2. Graceful Hardware Degradation
@@ -152,12 +182,14 @@ In deeper shipwrecks and ancient ruins, apex predator sharks patrol the area. If
 * **Audio Device Failure**: If audio devices fail to initialize, methods safely default to silent operations without raising unhandled exceptions.
 
 ### 3. Automated Test Coverage
-The project includes a **22-test automated suite** executed via Pytest:
-* Mathematical collision primitives (circle-point, circle-circle, rect-point).
-* Gesture state transitions, debounce checks, and synthetic landmark classification.
-* Swimmer kinematics, grab & release mechanics, and oxygen depletion arithmetic.
-* Multi-level configuration integrity and deposit objective conditions.
-* Headless integration test verifying full engine lifecycle, state transitions, and Level Select screen.
+The project includes a **35-test automated suite** executed via Pytest:
+* **`tests/test_adventure_systems.py`**: Mystery crates, air bubble stations, whirlpool suction & escape, octopus ambush collision, ancient gesture puzzle sequence, and exploration fog grid.
+* **`tests/test_challenges.py`**: Abyssal challenge lifecycle, jellyfish kinematics, shield deflection, and combo streak progression/resets.
+* **`tests/test_collision.py`**: Mathematical collision primitives (circle-point, circle-circle, rect-point).
+* **`tests/test_engine_run.py`**: Headless integration test verifying full engine lifecycle, state transitions, HUD minimap rendering, and Level Select screen.
+* **`tests/test_game_logic.py`**: Swimmer kinematics, grab & release mechanics, and oxygen depletion arithmetic.
+* **`tests/test_gestures.py`**: Gesture state transitions, debounce checks, and synthetic landmark classification.
+* **`tests/test_levels.py`**: Multi-level configuration integrity, deposit objective conditions, and timeout triggers.
 
 ---
 
