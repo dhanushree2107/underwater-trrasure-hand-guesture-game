@@ -1,14 +1,16 @@
 services:
   - type: web
     name: underwater-treasure-hunt
-    env: static
-    buildCommand: ""
-    staticPublishPath: ./
-    pullRequestPreviewsEnabled: true
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        value: 10000
     headers:
       - path: /*
         name: Access-Control-Allow-Origin
         value: "*"
       - path: /*
-        name: Cache-Control
-        value: no-cache
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
